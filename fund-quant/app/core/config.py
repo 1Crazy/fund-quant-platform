@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     nav_cache_seconds: int = 30 * 60
     fund_cache_seconds: int = 6 * 60 * 60
     estimate_cache_seconds: int = 15
+    upstream_max_retries: int = 2
+    upstream_retry_base_seconds: float = 0.5
+    upstream_retry_after_seconds: int = 30
 
 
 @lru_cache

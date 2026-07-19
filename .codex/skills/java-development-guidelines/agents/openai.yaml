@@ -1,0 +1,4 @@
+interface:
+  display_name: "Java 开发规范"
+  short_description: "处理基金 Java 开发、排错与接口联调。"
+  default_prompt: "使用 $java-development-guidelines 排查基金 Java 接口、Mapper、PostgreSQL 或供应方调用问题。"

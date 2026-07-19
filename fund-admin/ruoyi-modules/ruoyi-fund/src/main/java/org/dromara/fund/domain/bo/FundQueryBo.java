@@ -11,5 +11,8 @@ public class FundQueryBo {
     private String fundCode;
     private String fundName;
     private String fundType;
+    private String source;
+    private String qualityStatus;
+    private String syncStatus;
     private String status;
 }

@@ -7,15 +7,18 @@ import org.dromara.common.core.exception.ServiceException;
 import org.dromara.common.mybatis.core.page.PageQuery;
 import org.dromara.common.mybatis.core.page.TableDataInfo;
 import org.dromara.common.redis.utils.RedisUtils;
-import org.dromara.fund.client.FundDataProviderClient;
+import org.dromara.fund.config.FundDataProperties;
 import org.dromara.fund.constant.FundCacheConstants;
 import org.dromara.fund.domain.FundInfo;
 import org.dromara.fund.domain.bo.FundQueryBo;
+import org.dromara.fund.domain.dto.FundSyncStatusSummaryVo;
 import org.dromara.fund.domain.vo.FundDetailVo;
 import org.dromara.fund.domain.vo.FundEstimateVo;
 import org.dromara.fund.domain.vo.FundHoldingVo;
 import org.dromara.fund.domain.vo.FundListVo;
 import org.dromara.fund.domain.vo.FundNavPointVo;
+import org.dromara.fund.mapper.FundHoldingMapper;
+import org.dromara.fund.mapper.FundDataQualityIssueMapper;
 import org.dromara.fund.mapper.FundInfoMapper;
 import org.dromara.fund.mapper.FundNavMapper;
 import org.dromara.fund.service.IFundDataSyncService;
@@ -36,7 +39,9 @@ public class FundQueryServiceImpl implements IFundQueryService {
 
     private final FundInfoMapper fundInfoMapper;
     private final FundNavMapper fundNavMapper;
-    private final FundDataProviderClient fundDataProviderClient;
+    private final FundHoldingMapper fundHoldingMapper;
+    private final FundDataQualityIssueMapper qualityIssueMapper;
+    private final FundDataProperties properties;
     private final IFundDataSyncService fundDataSyncService;
     private final IFundEstimateService estimateService;
 
@@ -74,6 +79,12 @@ public class FundQueryServiceImpl implements IFundQueryService {
         if (isExactFundCode(fundCode)) {
             fundDataSyncService.ensureAvailable(fundCode, navPeriod.syncDays());
         }
+        // 详情载荷包含按周期裁剪的 NAV 序列，缓存键必须区分 period，避免不同区间互相覆盖。
+        String detailCacheKey = FundCacheConstants.INFO_KEY_PREFIX + fundCode + ":detail:" + period;
+        FundDetailVo cached = RedisUtils.getCacheObject(detailCacheKey);
+        if (cached != null) {
+            return cached;
+        }
         FundInfo fund = fundInfoMapper.selectOne(Wrappers.<FundInfo>lambdaQuery()
             .eq(FundInfo::getFundCode, fundCode)
             .eq(FundInfo::getStatus, "0"));
@@ -81,7 +92,18 @@ public class FundQueryServiceImpl implements IFundQueryService {
             throw new ServiceException("基金代码 {} 不存在或已停用", fundCode);
         }
         FundNavPointVo latest = fundNavMapper.selectLatest(fundCode);
-        List<FundNavPointVo> series = fundNavMapper.selectSeries(fundCode, navPeriod.startDate());
+        String navCacheKey = FundCacheConstants.NAV_KEY_PREFIX + fundCode + ":" + period;
+        List<FundNavPointVo> series = RedisUtils.getCacheObject(navCacheKey);
+        if (series == null) {
+            series = fundNavMapper.selectSeries(fundCode, navPeriod.startDate());
+            RedisUtils.setCacheObject(navCacheKey, series, propertiesNavTtl());
+        }
+        String holdingCacheKey = FundCacheConstants.HOLDING_KEY_PREFIX + fundCode + ":latest";
+        List<FundHoldingVo> holdings = RedisUtils.getCacheObject(holdingCacheKey);
+        if (holdings == null) {
+            holdings = fundHoldingMapper.selectLatest(fundCode);
+            RedisUtils.setCacheObject(holdingCacheKey, holdings, propertiesHoldingTtl());
+        }
 
         FundDetailVo detail = new FundDetailVo();
         detail.setFundCode(fund.getFundCode());
@@ -95,41 +117,61 @@ public class FundQueryServiceImpl implements IFundQueryService {
         detail.setFundScale(fund.getFundScale());
         detail.setLatestNav(latest == null ? null : latest.getUnitNav());
         detail.setNavDate(latest == null ? null : latest.getDate());
+        detail.setSource(fund.getSource());
+        detail.setSourceUpdatedAt(fund.getSourceUpdatedAt());
+        detail.setAsOfDate(fund.getBusinessDate());
+        detail.setDataVersion(fund.getDataVersion());
+        detail.setQualityStatus(fund.getQualityStatus());
+        detail.setQualityReason(fund.getQualityReason());
+        detail.setLatestNavDataVersion(latest == null ? null : latest.getDataVersion());
+        detail.setLatestNavQualityStatus(latest == null ? null : latest.getQualityStatus());
+        detail.setLatestHoldingReportDate(fundHoldingMapper.selectLatestReportDate(fundCode));
+        if (!holdings.isEmpty()) {
+            FundHoldingVo first = holdings.get(0);
+            detail.setLatestHoldingDataVersion(first.getDataVersion());
+            detail.setLatestHoldingQualityStatus(first.getQualityStatus());
+        }
+        FundSyncStatusSummaryVo syncStatus = fundDataSyncService.queryStatus(nullToDataset(), "FUND_CODE", fundCode);
+        if (syncStatus != null) {
+            detail.setSyncState(syncStatus.getState());
+            detail.setSyncStatus(syncStatus.getState());
+            detail.setSyncFetchBatchId(syncStatus.getFetchBatchId());
+        }
         detail.setEstimate(estimateService.queryCachedOrSnapshot(fundCode));
         detail.setNavSeries(series);
-        try {
-            List<FundHoldingVo> holdings = fundDataProviderClient.fetchHoldings(fundCode).stream()
-                .map(source -> {
-                    FundHoldingVo target = new FundHoldingVo();
-                    target.setStockCode(source.getStockCode());
-                    target.setStockName(source.getStockName());
-                    target.setWeight(source.getWeight());
-                    target.setReportPeriod(source.getReportPeriod());
-                    return target;
-                })
-                .toList();
-            detail.setHoldings(holdings);
-            BigDecimal holdingCoverageRate = holdings.stream()
-                .map(FundHoldingVo::getWeight)
-                .filter(java.util.Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-            detail.setHoldingCoverageRate(holdingCoverageRate);
-            if (holdings.isEmpty()) {
-                detail.setHoldingNote("最新报告期未披露直接股票持仓；ETF 联接基金可能主要持有目标 ETF。");
-            } else if (holdingCoverageRate.compareTo(new BigDecimal("10")) < 0) {
-                detail.setHoldingNote("直接股票披露占基金净值比例较低，基金可能主要持有目标 ETF；下表不是完整底层资产持仓。");
-                // 旧快照可能由低覆盖持仓计算而来，详情页不得继续展示为可信盘中估值。
-                detail.setEstimate(null);
-            } else {
-                detail.setHoldingNote("持仓为最近公开报告期数据，不代表当前实时仓位。");
-            }
-        } catch (ServiceException e) {
-            // 持仓是详情页补充信息，上游暂时不可用时不应阻断净值与基础档案展示。
-            detail.setHoldings(List.of());
-            detail.setHoldingCoverageRate(BigDecimal.ZERO);
-            detail.setHoldingNote("基金持仓数据暂时不可用，请稍后刷新。");
+        detail.setHoldings(holdings);
+        detail.setQualityIssues(qualityIssueMapper.selectRecentByFundCode(fundCode));
+        BigDecimal holdingCoverageRate = holdings.stream()
+            .map(FundHoldingVo::getWeight)
+            .filter(java.util.Objects::nonNull)
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        detail.setHoldingCoverageRate(holdingCoverageRate);
+        if (holdings.isEmpty()) {
+            detail.setHoldingNote("最新报告期未披露直接股票持仓；披露持仓不是实时仓位。");
+        } else if (holdingCoverageRate.compareTo(new BigDecimal("10")) < 0) {
+            detail.setHoldingNote("直接股票披露占基金净值比例较低；下表不是完整底层资产持仓。");
+            detail.setEstimate(null);
+        } else {
+            detail.setHoldingNote("持仓为最近公开报告期数据，不代表当前实时仓位。");
         }
+        RedisUtils.setCacheObject(detailCacheKey, detail, propertiesInfoTtl());
         return detail;
+    }
+
+    private java.time.Duration propertiesInfoTtl() {
+        return properties.getInfoCacheTtl();
+    }
+
+    private java.time.Duration propertiesNavTtl() {
+        return properties.getNavCacheTtl();
+    }
+
+    private java.time.Duration propertiesHoldingTtl() {
+        return properties.getHoldingCacheTtl();
+    }
+
+    private String nullToDataset() {
+        return "FUND_INFO";
     }
 
     private String normalizeFundCode(String fundCode) {

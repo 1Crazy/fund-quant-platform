@@ -7,12 +7,15 @@
     <insert id="upsertBatch">
         INSERT INTO fund_nav (
             id, fund_code, nav_date, unit_nav, accumulated_nav, daily_growth_rate,
-            source, create_time, update_time
+            source, source_time, fetch_batch_id, data_version, checksum, quality_status,
+            quality_reason, create_time, update_time
         ) VALUES
         <foreach collection="items" item="item" separator=",">
             (
                 #{item.id}, #{item.fundCode}, #{item.navDate}, #{item.unitNav}, #{item.accumulatedNav},
-                #{item.dailyGrowthRate}, #{item.source}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                #{item.dailyGrowthRate}, #{item.source}, #{item.sourceTime}, #{item.fetchBatchId},
+                #{item.dataVersion}, #{item.checksum}, #{item.qualityStatus}, #{item.qualityReason},
+                CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
         </foreach>
         ON CONFLICT (fund_code, nav_date) DO UPDATE SET
@@ -30,14 +33,30 @@
                     )
                 ELSE EXCLUDED.source
             END,
+            source_time = EXCLUDED.source_time,
+            fetch_batch_id = COALESCE(EXCLUDED.fetch_batch_id, fund_nav.fetch_batch_id),
+            data_version = COALESCE(EXCLUDED.data_version, fund_nav.data_version),
+            checksum = COALESCE(EXCLUDED.checksum, fund_nav.checksum),
+            quality_status = COALESCE(EXCLUDED.quality_status, fund_nav.quality_status),
+            quality_reason = EXCLUDED.quality_reason,
             update_time = CURRENT_TIMESTAMP
+        WHERE fund_nav.unit_nav IS DISTINCT FROM EXCLUDED.unit_nav
+           OR fund_nav.accumulated_nav IS DISTINCT FROM EXCLUDED.accumulated_nav
+           OR fund_nav.daily_growth_rate IS DISTINCT FROM EXCLUDED.daily_growth_rate
+           OR fund_nav.checksum IS DISTINCT FROM EXCLUDED.checksum
+           OR fund_nav.quality_status IS DISTINCT FROM EXCLUDED.quality_status
+           OR fund_nav.quality_reason IS DISTINCT FROM EXCLUDED.quality_reason
     </insert>
 
     <select id="selectLatest" resultType="org.dromara.fund.domain.vo.FundNavPointVo">
         SELECT nav_date AS date,
                unit_nav,
                accumulated_nav,
-               daily_growth_rate
+               daily_growth_rate,
+               source,
+               source_time,
+               data_version,
+               quality_status
         FROM fund_nav
         WHERE fund_code = #{fundCode}
         ORDER BY nav_date DESC
@@ -61,12 +80,33 @@
         SELECT nav_date AS date,
                unit_nav,
                accumulated_nav,
-               daily_growth_rate
+               daily_growth_rate,
+               source,
+               source_time,
+               data_version,
+               quality_status
         FROM fund_nav
         WHERE fund_code = #{fundCode}
         <if test="startDate != null">
             AND nav_date &gt;= #{startDate}
         </if>
         ORDER BY nav_date
+    </select>
+
+    <select id="selectLatestVersion" resultType="org.dromara.fund.domain.dto.FundDataVersionDto">
+        SELECT 'FUND_NAV' AS dataset,
+               fund_code,
+               nav_date AS business_date,
+               fetch_batch_id,
+               data_version,
+               checksum,
+               quality_status,
+               quality_reason,
+               source,
+               source_time
+        FROM fund_nav
+        WHERE fund_code = #{fundCode}
+        ORDER BY nav_date DESC
+        LIMIT 1
     </select>
 </mapper>

@@ -5,6 +5,7 @@ import org.apache.ibatis.annotations.Param;
 import org.dromara.common.mybatis.core.mapper.BaseMapperPlus;
 import org.dromara.fund.domain.FundInfo;
 import org.dromara.fund.domain.bo.FundQueryBo;
+import org.dromara.fund.domain.dto.FundDataVersionDto;
 import org.dromara.fund.domain.vo.FundListVo;
 
 /**
@@ -16,4 +17,6 @@ public interface FundInfoMapper extends BaseMapperPlus<FundInfo, FundInfo> {
 
     /** PostgreSQL 按基金代码幂等写入基础信息。 */
     int upsert(@Param("item") FundInfo fundInfo);
+
+    FundDataVersionDto selectLatestVersion(@Param("fundCode") String fundCode);
 }

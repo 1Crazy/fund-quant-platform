@@ -8,12 +8,15 @@
         INSERT INTO fund_info (
             id, fund_code, fund_name, fund_type, pinyin_abbr,
             manager_name, custodian_name, establish_date, benchmark, risk_level, fund_scale,
-            status, source, source_updated_at, create_time, update_time, del_flag
+            status, source, source_updated_at, business_date, fetch_batch_id, data_version,
+            checksum, quality_status, quality_reason, create_time, update_time, del_flag
         ) VALUES (
             #{item.id}, #{item.fundCode}, #{item.fundName}, #{item.fundType}, #{item.pinyinAbbr},
             #{item.managerName}, #{item.custodianName}, #{item.establishDate}, #{item.benchmark},
             #{item.riskLevel}, #{item.fundScale},
-            #{item.status}, #{item.source}, #{item.sourceUpdatedAt},
+            #{item.status}, #{item.source}, #{item.sourceUpdatedAt}, #{item.businessDate},
+            #{item.fetchBatchId}, #{item.dataVersion}, #{item.checksum}, #{item.qualityStatus},
+            #{item.qualityReason},
             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, #{item.delFlag}
         )
         ON CONFLICT (fund_code) DO UPDATE SET
@@ -33,16 +36,51 @@
                 ELSE EXCLUDED.source
             END,
             source_updated_at = EXCLUDED.source_updated_at,
+            business_date = COALESCE(EXCLUDED.business_date, fund_info.business_date),
+            fetch_batch_id = COALESCE(EXCLUDED.fetch_batch_id, fund_info.fetch_batch_id),
+            data_version = COALESCE(EXCLUDED.data_version, fund_info.data_version),
+            checksum = COALESCE(EXCLUDED.checksum, fund_info.checksum),
+            quality_status = COALESCE(EXCLUDED.quality_status, fund_info.quality_status),
+            quality_reason = EXCLUDED.quality_reason,
             update_time = CURRENT_TIMESTAMP,
             del_flag = 0
+        WHERE fund_info.fund_name IS DISTINCT FROM EXCLUDED.fund_name
+           OR fund_info.fund_type IS DISTINCT FROM EXCLUDED.fund_type
+           OR fund_info.pinyin_abbr IS DISTINCT FROM EXCLUDED.pinyin_abbr
+           OR fund_info.manager_name IS DISTINCT FROM COALESCE(EXCLUDED.manager_name, fund_info.manager_name)
+           OR fund_info.custodian_name IS DISTINCT FROM COALESCE(EXCLUDED.custodian_name, fund_info.custodian_name)
+           OR fund_info.establish_date IS DISTINCT FROM COALESCE(EXCLUDED.establish_date, fund_info.establish_date)
+           OR fund_info.benchmark IS DISTINCT FROM COALESCE(EXCLUDED.benchmark, fund_info.benchmark)
+           OR fund_info.risk_level IS DISTINCT FROM COALESCE(EXCLUDED.risk_level, fund_info.risk_level)
+           OR fund_info.fund_scale IS DISTINCT FROM COALESCE(EXCLUDED.fund_scale, fund_info.fund_scale)
+           OR fund_info.status IS DISTINCT FROM EXCLUDED.status
+           OR fund_info.checksum IS DISTINCT FROM EXCLUDED.checksum
+           OR fund_info.quality_status IS DISTINCT FROM EXCLUDED.quality_status
+           OR fund_info.quality_reason IS DISTINCT FROM EXCLUDED.quality_reason
     </insert>
 
     <select id="selectFundPage" resultType="org.dromara.fund.domain.vo.FundListVo">
         SELECT fi.fund_code,
                fi.fund_name,
                fi.fund_type,
+               fi.source,
+               fi.source_updated_at,
+               fi.business_date AS as_of_date,
+               fi.business_date,
+               fi.data_version,
+               fi.quality_status,
+               fi.quality_reason,
                nav.unit_nav AS latest_nav,
                nav.nav_date,
+               nav.data_version AS latest_nav_data_version,
+               nav.quality_status AS latest_nav_quality_status,
+               nav.quality_reason AS latest_nav_quality_reason,
+               holding.report_date AS latest_holding_report_date,
+               holding.data_version AS latest_holding_data_version,
+               holding.quality_status AS latest_holding_quality_status,
+               sync.state AS sync_state,
+               sync.state AS sync_status,
+               sync.fetch_batch_id AS sync_fetch_batch_id,
                estimate.estimate_nav,
                estimate.estimate_growth_rate,
                estimate.estimate_time,
@@ -54,12 +92,27 @@
                END AS stale
         FROM fund_info fi
         LEFT JOIN LATERAL (
-            SELECT fn.unit_nav, fn.nav_date
+            SELECT fn.unit_nav, fn.nav_date, fn.data_version, fn.quality_status, fn.quality_reason
             FROM fund_nav fn
             WHERE fn.fund_code = fi.fund_code
             ORDER BY fn.nav_date DESC
             LIMIT 1
         ) nav ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT fh.report_date, fh.data_version, fh.quality_status
+            FROM fund_holding fh
+            WHERE fh.fund_code = fi.fund_code
+            ORDER BY fh.report_date DESC
+            LIMIT 1
+        ) holding ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT fsr.state, fsr.fetch_batch_id
+            FROM fund_sync_run fsr
+            WHERE fsr.dataset IN ('FUND_INFO', 'FUND_NAV', 'FUND_HOLDING')
+              AND (fsr.scope_value = fi.fund_code OR fsr.scope_type = 'ALL')
+            ORDER BY fsr.started_at DESC
+            LIMIT 1
+        ) sync ON TRUE
         LEFT JOIN LATERAL (
             SELECT fe.estimate_nav,
                    fe.estimate_growth_rate,
@@ -83,6 +136,15 @@
         <if test="bo.fundType != null and bo.fundType != ''">
             AND fi.fund_type = #{bo.fundType}
         </if>
+        <if test="bo.source != null and bo.source != ''">
+            AND fi.source = #{bo.source}
+        </if>
+        <if test="bo.qualityStatus != null and bo.qualityStatus != ''">
+            AND fi.quality_status = #{bo.qualityStatus}
+        </if>
+        <if test="bo.syncStatus != null and bo.syncStatus != ''">
+            AND sync.state = #{bo.syncStatus}
+        </if>
         <if test="bo.status != null and bo.status != ''">
             AND fi.status = #{bo.status}
         </if>
@@ -90,5 +152,22 @@
             AND fi.status = '0'
         </if>
         ORDER BY fi.fund_code
+    </select>
+
+    <select id="selectLatestVersion" resultType="org.dromara.fund.domain.dto.FundDataVersionDto">
+        SELECT 'FUND_INFO' AS dataset,
+               fund_code,
+               business_date,
+               fetch_batch_id,
+               data_version,
+               checksum,
+               quality_status,
+               quality_reason,
+               source,
+               source_updated_at AS source_time
+        FROM fund_info
+        WHERE fund_code = #{fundCode}
+          AND del_flag = 0
+        LIMIT 1
     </select>
 </mapper>

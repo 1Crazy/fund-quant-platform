@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
+import { useAccess } from '@vben/access';
 import { Page } from '@vben/common-ui';
 import { ArrowLeft, RotateCw } from '@vben/icons';
 
@@ -26,11 +27,18 @@ import type { FundApi } from '#/api/fund';
 import { useFundStore } from '#/store';
 
 import NavChart from '../components/nav-chart.vue';
+import {
+  datasetLabel,
+  manualSyncPermissions,
+  qualityStatusMeta,
+  syncStatusMeta,
+} from '../utils/status';
 
 const route = useRoute();
 const router = useRouter();
+const { hasAccessByCodes } = useAccess();
 const fundStore = useFundStore();
-const { detail, detailLoading } = storeToRefs(fundStore);
+const { detail, detailLoading, syncTriggerLoading } = storeToRefs(fundStore);
 const period = ref<FundApi.NavPeriod>('3m');
 const periodOptions: Array<{ label: string; value: FundApi.NavPeriod }> = [
   { label: '近1月', value: '1m' },
@@ -66,6 +74,14 @@ const navRange = computed(() => {
   if (!rows.length) return '--';
   return `${rows[0]?.date} 至 ${rows.at(-1)?.date}`;
 });
+const latestHoldingReportDate = computed(
+  () =>
+    detail.value?.latestHoldingReportDate ??
+    detail.value?.holdings.find((item) => item.reportDate)?.reportDate ??
+    detail.value?.holdings[0]?.reportPeriod,
+);
+const qualityIssues = computed(() => detail.value?.qualityIssues ?? []);
+const canManualSync = computed(() => hasAccessByCodes(manualSyncPermissions));
 
 function nav(value?: number) {
   return value == null ? '--' : value.toFixed(4);
@@ -92,6 +108,18 @@ async function refreshEstimate() {
   }
 }
 
+async function refreshDataCenter() {
+  if (!code.value) return;
+  const result = await fundStore.triggerSync({
+    dataset: 'fund_info',
+    fundCode: code.value,
+    syncScope: 'SINGLE_FUND',
+    syncType: 'LAZY_LOAD',
+  });
+  await load();
+  ElMessage.success(result.message || '数据同步已提交');
+}
+
 onMounted(load);
 watch(period, () => {
   historyPage.value = 1;
@@ -107,14 +135,23 @@ watch(code, load);
         <ElButton text @click="router.push('/fund/list')">
           <ArrowLeft class="mr-1 size-4" />返回基金列表
         </ElButton>
-        <ElButton
-          :disabled="!estimateSupported"
-          :loading="estimateLoading"
-          type="primary"
-          @click="refreshEstimate"
-        >
-          <RotateCw class="mr-1 size-4" />刷新估值
-        </ElButton>
+        <div class="flex gap-2">
+          <ElButton
+            v-if="canManualSync"
+            :loading="syncTriggerLoading"
+            type="primary"
+            @click="refreshDataCenter"
+          >
+            <RotateCw class="mr-1 size-4" />刷新数据
+          </ElButton>
+          <ElButton
+            :disabled="!estimateSupported"
+            :loading="estimateLoading"
+            @click="refreshEstimate"
+          >
+            <RotateCw class="mr-1 size-4" />刷新估值
+          </ElButton>
+        </div>
       </div>
 
       <ElSkeleton v-if="detailLoading && !detail" :rows="8" animated />
@@ -127,6 +164,12 @@ watch(code, load);
             <div class="mt-3 flex flex-wrap gap-2">
               <ElTag effect="plain">{{ detail.fundType }}</ElTag>
               <ElTag v-if="detail.riskLevel" effect="plain" type="warning">{{ detail.riskLevel }}</ElTag>
+              <ElTag :type="qualityStatusMeta(detail.qualityStatus).type" effect="plain">
+                数据质量：{{ qualityStatusMeta(detail.qualityStatus).label }}
+              </ElTag>
+              <ElTag v-if="detail.syncStatus" :type="syncStatusMeta(detail.syncStatus).type" effect="plain">
+                最近同步：{{ syncStatusMeta(detail.syncStatus).label }}
+              </ElTag>
               <ElTag v-if="estimate?.isStale" type="warning">估值已过期</ElTag>
             </div>
           </div>
@@ -158,7 +201,11 @@ watch(code, load);
                 />
               </div>
             </template>
-            <NavChart v-if="detail.navSeries.length" :points="detail.navSeries" />
+            <NavChart
+              v-if="detail.navSeries.length"
+              :key="`${detail.fundCode}:${period}`"
+              :points="detail.navSeries"
+            />
             <ElEmpty v-else description="暂无净值走势数据" />
           </ElCard>
 
@@ -167,6 +214,16 @@ watch(code, load);
               <template #header><span class="panel-title">最新净值</span></template>
               <div class="official-nav">{{ nav(detail.latestNav) }}</div>
               <div class="mt-1 text-sm text-slate-500">净值日期 {{ detail.navDate || '--' }}</div>
+            </ElCard>
+            <ElCard shadow="never">
+              <template #header><span class="panel-title">数据版本</span></template>
+              <ElDescriptions :column="1" border>
+                <ElDescriptionsItem label="数据版本">{{ detail.dataVersion || '--' }}</ElDescriptionsItem>
+                <ElDescriptionsItem label="数据日期">{{ detail.asOfDate || detail.navDate || '--' }}</ElDescriptionsItem>
+                <ElDescriptionsItem label="数据来源">{{ detail.source || '--' }}</ElDescriptionsItem>
+                <ElDescriptionsItem label="来源时间">{{ detail.sourceUpdatedAt || '--' }}</ElDescriptionsItem>
+                <ElDescriptionsItem label="持仓报告期">{{ latestHoldingReportDate || '--' }}</ElDescriptionsItem>
+              </ElDescriptions>
             </ElCard>
             <ElCard shadow="never">
               <template #header><span class="panel-title">基金档案</span></template>
@@ -187,7 +244,7 @@ watch(code, load);
               <div>
                 <div class="panel-title">最新股票持仓</div>
                 <div class="panel-subtitle">
-                  {{ detail.holdings[0]?.reportPeriod || '最近公开报告期' }} · 权重为占基金净值比例
+                  {{ latestHoldingReportDate || '最近公开报告期' }} · 权重为占基金净值比例
                 </div>
               </div>
               <ElTag v-if="detail.holdings.length" effect="plain">
@@ -203,6 +260,14 @@ watch(code, load);
               <template #default="{ row }">{{ row.weight.toFixed(2) }}%</template>
             </ElTableColumn>
             <ElTableColumn label="报告期" min-width="150" prop="reportPeriod" />
+            <ElTableColumn label="来源" min-width="130" prop="source" />
+            <ElTableColumn label="质量" min-width="110">
+              <template #default="{ row }">
+                <ElTag :type="qualityStatusMeta(row.qualityStatus).type" effect="plain">
+                  {{ qualityStatusMeta(row.qualityStatus).label }}
+                </ElTag>
+              </template>
+            </ElTableColumn>
           </ElTable>
           <ElEmpty v-else description="最新报告期暂无直接股票持仓" />
           <ElAlert
@@ -213,6 +278,34 @@ watch(code, load);
             type="info"
             show-icon
           />
+        </ElCard>
+
+        <ElCard class="mt-4" shadow="never">
+          <template #header>
+            <div>
+              <div class="panel-title">数据质量问题</div>
+              <div class="panel-subtitle">
+                展示最近同步隔离或降级的数据问题，其他有效区块仍可使用
+              </div>
+            </div>
+          </template>
+          <ElTable v-if="qualityIssues.length" :data="qualityIssues" stripe>
+            <ElTableColumn label="数据集" min-width="120">
+              <template #default="{ row }">{{ datasetLabel(row.dataset) }}</template>
+            </ElTableColumn>
+            <ElTableColumn label="业务日期" min-width="120" prop="businessDate" />
+            <ElTableColumn label="原因码" min-width="180" prop="reasonCode" />
+            <ElTableColumn label="说明" min-width="260" prop="reasonMessage" show-overflow-tooltip />
+            <ElTableColumn label="状态" min-width="110">
+              <template #default="{ row }">
+                <ElTag :type="qualityStatusMeta(row.qualityStatus).type" effect="plain">
+                  {{ qualityStatusMeta(row.qualityStatus).label }}
+                </ElTag>
+              </template>
+            </ElTableColumn>
+            <ElTableColumn label="发现时间" min-width="180" prop="discoveredAt" />
+          </ElTable>
+          <ElEmpty v-else description="暂无数据质量问题" />
         </ElCard>
 
         <ElCard class="mt-4" shadow="never">
@@ -253,7 +346,9 @@ watch(code, load);
           </div>
         </ElCard>
 
-        <div class="risk-note">量化估值仅供辅助决策，不构成投资建议。盘中估值可能与基金公司最终公布净值存在差异。</div>
+        <div class="risk-note">
+          历史净值与披露持仓来自公开数据源，仅用于数据展示；披露持仓不代表实时仓位，也不构成 AI 建议或投资建议。
+        </div>
       </template>
     </div>
   </Page>

@@ -6,6 +6,7 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
@@ -29,8 +30,25 @@ public class FundDetailVo implements Serializable {
     private BigDecimal fundScale;
     private BigDecimal latestNav;
     private LocalDate navDate;
+    private String source;
+    private OffsetDateTime sourceUpdatedAt;
+    private LocalDate asOfDate;
+    private String dataVersion;
+    private String qualityStatus;
+    private String qualityReason;
+    private String latestNavDataVersion;
+    private String latestNavQualityStatus;
+    private String latestNavQualityReason;
+    private LocalDate latestHoldingReportDate;
+    private String latestHoldingDataVersion;
+    private String latestHoldingQualityStatus;
+    private String syncState;
+    private String syncStatus;
+    private String syncFetchBatchId;
     private FundEstimateVo estimate;
     private List<FundNavPointVo> navSeries = List.of();
+    /** 最近同步过程中隔离的数据质量问题。 */
+    private List<FundDataQualityIssueVo> qualityIssues = List.of();
     /** 最新公开报告期的股票持仓。 */
     private List<FundHoldingVo> holdings = List.of();
     /** 持仓披露或数据可用性说明。 */

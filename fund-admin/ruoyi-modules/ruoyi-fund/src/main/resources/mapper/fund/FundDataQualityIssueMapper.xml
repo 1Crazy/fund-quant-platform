@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.dromara.fund.mapper.FundDataQualityIssueMapper">
+
+    <insert id="upsert">
+        INSERT INTO fund_data_quality_issue (
+            id, sync_run_id, dataset, source, source_time, business_date, fetch_batch_id,
+            data_version, checksum, record_key, quality_status, reason_code, raw_summary,
+            detected_at, issue_status, create_time, update_time
+        ) VALUES (
+            #{item.id}, #{item.syncRunId}, #{item.dataset}, #{item.source}, #{item.sourceTime},
+            #{item.businessDate}, #{item.fetchBatchId}, #{item.dataVersion}, #{item.checksum},
+            #{item.recordKey}, #{item.qualityStatus}, #{item.reasonCode}, #{item.rawSummary},
+            #{item.detectedAt}, #{item.issueStatus}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (dataset, fetch_batch_id, record_key, reason_code) DO UPDATE SET
+            sync_run_id = EXCLUDED.sync_run_id,
+            source = EXCLUDED.source,
+            source_time = EXCLUDED.source_time,
+            business_date = EXCLUDED.business_date,
+            data_version = EXCLUDED.data_version,
+            checksum = EXCLUDED.checksum,
+            quality_status = EXCLUDED.quality_status,
+            raw_summary = EXCLUDED.raw_summary,
+            detected_at = EXCLUDED.detected_at,
+            issue_status = EXCLUDED.issue_status,
+            update_time = CURRENT_TIMESTAMP
+    </insert>
+
+    <select id="selectIssuePage" resultType="org.dromara.fund.domain.vo.FundDataQualityIssueVo">
+        SELECT id,
+               sync_run_id,
+               dataset,
+               source,
+               source_time,
+               business_date,
+               fetch_batch_id,
+               data_version,
+               checksum,
+               record_key,
+               quality_status,
+               reason_code,
+               raw_summary,
+               detected_at,
+               issue_status
+        FROM fund_data_quality_issue
+        WHERE 1 = 1
+        <if test="bo.syncRunId != null">
+            AND sync_run_id = #{bo.syncRunId}
+        </if>
+        <if test="bo.dataset != null and bo.dataset != ''">
+            AND dataset = #{bo.dataset}
+        </if>
+        <if test="bo.fetchBatchId != null and bo.fetchBatchId != ''">
+            AND fetch_batch_id = #{bo.fetchBatchId}
+        </if>
+        <if test="bo.reasonCode != null and bo.reasonCode != ''">
+            AND reason_code = #{bo.reasonCode}
+        </if>
+        <if test="bo.issueStatus != null and bo.issueStatus != ''">
+            AND issue_status = #{bo.issueStatus}
+        </if>
+        <if test="bo.detectedAtStart != null">
+            AND detected_at &gt;= #{bo.detectedAtStart}
+        </if>
+        <if test="bo.detectedAtEnd != null">
+            AND detected_at &lt;= #{bo.detectedAtEnd}
+        </if>
+        ORDER BY detected_at DESC, id DESC
+    </select>
+
+    <select id="selectRecentByFundCode" resultType="org.dromara.fund.domain.vo.FundDataQualityIssueVo">
+        SELECT id,
+               sync_run_id,
+               dataset,
+               source,
+               source_time,
+               business_date,
+               fetch_batch_id,
+               data_version,
+               checksum,
+               record_key,
+               quality_status,
+               reason_code,
+               raw_summary,
+               detected_at,
+               issue_status
+        FROM fund_data_quality_issue
+        WHERE record_key = #{fundCode}
+           OR record_key LIKE (#{fundCode}::varchar || ':%')
+        ORDER BY detected_at DESC, id DESC
+        LIMIT 20
+    </select>
+</mapper>

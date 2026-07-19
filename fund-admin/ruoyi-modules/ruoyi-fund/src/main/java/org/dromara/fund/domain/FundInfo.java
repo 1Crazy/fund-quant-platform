@@ -50,8 +50,20 @@ public class FundInfo extends BaseEntity {
     private String status;
     /** 数据来源。 */
     private String source;
-    /** 上游数据更新时间。 */
+    /** 上游数据更新时间（现有 fund_info.source_updated_at 列）。 */
     private OffsetDateTime sourceUpdatedAt;
+    /** 数据业务日期。 */
+    private LocalDate businessDate;
+    /** 抓取批次 ID。 */
+    private String fetchBatchId;
+    /** 数据版本。 */
+    private String dataVersion;
+    /** 当前记录校验和。 */
+    private String checksum;
+    /** 数据质量状态。 */
+    private String qualityStatus;
+    /** 数据质量原因摘要。 */
+    private String qualityReason;
     /** 逻辑删除标志：0 存在，1 删除。 */
     @TableLogic
     private Long delFlag;

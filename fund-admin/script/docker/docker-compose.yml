@@ -106,6 +106,20 @@ services:
       TZ: Asia/Shanghai
       SERVER_PORT: 8080
       SNAIL_PORT: 28080
+      FUND_DATA_PROVIDER_BASE_URL: "http://127.0.0.1:8000"
+      FUND_ESTIMATE_PROVIDER_URL: "http://127.0.0.1:8000/internal/v1/data/estimate/{code}"
+      FUND_SYNC_ENABLED: "true"
+      FUND_SYNC_SCHEDULE_ENABLED: "true"
+      FUND_SYNC_INCREMENTAL_NAV_DAYS: "14"
+      FUND_SYNC_PAGE_SIZE: "200"
+      FUND_SYNC_RETRY_MAX_ATTEMPTS: "3"
+      FUND_SYNC_RETRY_BACKOFF_INITIAL: "2s"
+      FUND_SYNC_RETRY_BACKOFF_MAX: "2m"
+      FUND_SYNC_RATE_LIMIT_PER_MINUTE: "60"
+      FUND_CACHE_INFO_TTL: "30m"
+      FUND_CACHE_NAV_TTL: "1h"
+      FUND_CACHE_HOLDING_TTL: "6h"
+      FUND_CACHE_SYNC_STATUS_TTL: "30s"
     volumes:
       # 配置文件
       - /docker/server1/logs/:/ruoyi/server/logs/
@@ -122,6 +136,20 @@ services:
       TZ: Asia/Shanghai
       SERVER_PORT: 8081
       SNAIL_PORT: 28081
+      FUND_DATA_PROVIDER_BASE_URL: "http://127.0.0.1:8000"
+      FUND_ESTIMATE_PROVIDER_URL: "http://127.0.0.1:8000/internal/v1/data/estimate/{code}"
+      FUND_SYNC_ENABLED: "true"
+      FUND_SYNC_SCHEDULE_ENABLED: "true"
+      FUND_SYNC_INCREMENTAL_NAV_DAYS: "14"
+      FUND_SYNC_PAGE_SIZE: "200"
+      FUND_SYNC_RETRY_MAX_ATTEMPTS: "3"
+      FUND_SYNC_RETRY_BACKOFF_INITIAL: "2s"
+      FUND_SYNC_RETRY_BACKOFF_MAX: "2m"
+      FUND_SYNC_RATE_LIMIT_PER_MINUTE: "60"
+      FUND_CACHE_INFO_TTL: "30m"
+      FUND_CACHE_NAV_TTL: "1h"
+      FUND_CACHE_HOLDING_TTL: "6h"
+      FUND_CACHE_SYNC_STATUS_TTL: "30s"
     volumes:
       # 配置文件
       - /docker/server2/logs/:/ruoyi/server/logs/

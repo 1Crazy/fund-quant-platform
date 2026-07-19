@@ -6,6 +6,7 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 
 /**
  * 基金净值序列点。
@@ -20,4 +21,8 @@ public class FundNavPointVo implements Serializable {
     private BigDecimal unitNav;
     private BigDecimal accumulatedNav;
     private BigDecimal dailyGrowthRate;
+    private String source;
+    private OffsetDateTime sourceTime;
+    private String dataVersion;
+    private String qualityStatus;
 }

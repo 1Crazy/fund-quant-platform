@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.dromara.fund.mapper.FundHoldingMapper">
+
+    <insert id="upsertBatch">
+        INSERT INTO fund_holding (
+            id, fund_code, report_date, stock_code, stock_name, disclosed_weight,
+            market_value, holding_rank, source, source_time, fetch_batch_id, data_version,
+            checksum, quality_status, quality_reason, create_time, update_time
+        ) VALUES
+        <foreach collection="items" item="item" separator=",">
+            (
+                #{item.id}, #{item.fundCode}, #{item.reportDate}, #{item.stockCode}, #{item.stockName},
+                #{item.disclosedWeight}, #{item.marketValue}, #{item.holdingRank}, #{item.source},
+                #{item.sourceTime}, #{item.fetchBatchId}, #{item.dataVersion}, #{item.checksum},
+                #{item.qualityStatus}, #{item.qualityReason}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+        </foreach>
+        ON CONFLICT (fund_code, report_date, stock_code) DO UPDATE SET
+            stock_name = EXCLUDED.stock_name,
+            disclosed_weight = EXCLUDED.disclosed_weight,
+            market_value = EXCLUDED.market_value,
+            holding_rank = EXCLUDED.holding_rank,
+            source = EXCLUDED.source,
+            source_time = EXCLUDED.source_time,
+            fetch_batch_id = COALESCE(EXCLUDED.fetch_batch_id, fund_holding.fetch_batch_id),
+            data_version = COALESCE(EXCLUDED.data_version, fund_holding.data_version),
+            checksum = COALESCE(EXCLUDED.checksum, fund_holding.checksum),
+            quality_status = COALESCE(EXCLUDED.quality_status, fund_holding.quality_status),
+            quality_reason = EXCLUDED.quality_reason,
+            update_time = CURRENT_TIMESTAMP
+        WHERE fund_holding.stock_name IS DISTINCT FROM EXCLUDED.stock_name
+           OR fund_holding.disclosed_weight IS DISTINCT FROM EXCLUDED.disclosed_weight
+           OR fund_holding.market_value IS DISTINCT FROM EXCLUDED.market_value
+           OR fund_holding.holding_rank IS DISTINCT FROM EXCLUDED.holding_rank
+           OR fund_holding.checksum IS DISTINCT FROM EXCLUDED.checksum
+           OR fund_holding.quality_status IS DISTINCT FROM EXCLUDED.quality_status
+           OR fund_holding.quality_reason IS DISTINCT FROM EXCLUDED.quality_reason
+    </insert>
+
+    <select id="selectLatest" resultType="org.dromara.fund.domain.vo.FundHoldingVo">
+        SELECT stock_code,
+               stock_name,
+               disclosed_weight AS weight,
+               disclosed_weight,
+               market_value,
+               holding_rank AS rank_no,
+               holding_rank,
+               report_date AS report_date,
+               to_char(report_date, 'YYYY-MM-DD') AS report_period,
+               source,
+               source_time,
+               data_version,
+               quality_status
+        FROM fund_holding
+        WHERE fund_code = #{fundCode}
+          AND report_date = (
+              SELECT MAX(report_date)
+              FROM fund_holding
+              WHERE fund_code = #{fundCode}
+          )
+        ORDER BY holding_rank NULLS LAST, disclosed_weight DESC, stock_code
+    </select>
+
+    <select id="selectByReportDate" resultType="org.dromara.fund.domain.vo.FundHoldingVo">
+        SELECT stock_code,
+               stock_name,
+               disclosed_weight AS weight,
+               disclosed_weight,
+               market_value,
+               holding_rank AS rank_no,
+               holding_rank,
+               report_date,
+               to_char(report_date, 'YYYY-MM-DD') AS report_period,
+               source,
+               source_time,
+               data_version,
+               quality_status
+        FROM fund_holding
+        WHERE fund_code = #{fundCode}
+          AND report_date = #{reportDate}
+        ORDER BY holding_rank NULLS LAST, disclosed_weight DESC, stock_code
+    </select>
+
+    <select id="selectLatestReportDate" resultType="java.time.LocalDate">
+        SELECT MAX(report_date)
+        FROM fund_holding
+        WHERE fund_code = #{fundCode}
+    </select>
+
+    <select id="selectLatestVersion" resultType="org.dromara.fund.domain.dto.FundDataVersionDto">
+        SELECT 'FUND_HOLDING' AS dataset,
+               fund_code,
+               report_date AS business_date,
+               fetch_batch_id,
+               data_version,
+               checksum,
+               quality_status,
+               quality_reason,
+               source,
+               source_time
+        FROM fund_holding
+        WHERE fund_code = #{fundCode}
+        ORDER BY report_date DESC, holding_rank NULLS LAST
+        LIMIT 1
+    </select>
+</mapper>

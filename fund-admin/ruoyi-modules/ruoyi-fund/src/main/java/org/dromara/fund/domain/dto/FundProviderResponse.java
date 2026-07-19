@@ -1,10 +1,11 @@
 package org.dromara.fund.domain.dto;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonAlias;
 import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 
 /**
  * fund-quant 基金基础信息响应。
@@ -12,24 +13,34 @@ import java.time.LocalDate;
 @Data
 public class FundProviderResponse {
 
-    @JsonProperty("fund_code")
+    @JsonAlias("fund_code")
     private String fundCode;
-    @JsonProperty("fund_name")
+    @JsonAlias("fund_name")
     private String fundName;
-    @JsonProperty("fund_type")
+    @JsonAlias("fund_type")
     private String fundType;
-    @JsonProperty("pinyin_abbr")
+    @JsonAlias("pinyin_abbr")
     private String pinyinAbbr;
-    @JsonProperty("manager_name")
+    @JsonAlias({"company_name", "companyName"})
+    private String companyName;
+    @JsonAlias("manager_name")
     private String managerName;
-    @JsonProperty("custodian_name")
+    @JsonAlias("custodian_name")
     private String custodianName;
-    @JsonProperty("establish_date")
+    @JsonAlias("establish_date")
     private LocalDate establishDate;
     private String benchmark;
-    @JsonProperty("risk_level")
+    @JsonAlias("risk_level")
     private String riskLevel;
-    @JsonProperty("fund_scale")
+    @JsonAlias("fund_scale")
     private BigDecimal fundScale;
+    private String status;
     private String source;
+    @JsonAlias({"source_time", "sourceUpdatedAt"})
+    private OffsetDateTime sourceTime;
+    @JsonAlias("quality_status")
+    private String qualityStatus;
+    private String checksum;
+    @JsonAlias("data_version")
+    private String dataVersion;
 }

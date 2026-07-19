@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.dromara.fund.mapper.FundSyncRunMapper">
+
+    <sql id="runVoColumns">
+        id,
+        fetch_batch_id AS run_id,
+        fetch_batch_id,
+        dataset,
+        source,
+        source_time,
+        business_date,
+        scope_type,
+        scope_value,
+        CASE
+            WHEN scope_value = 'incremental' THEN 'INCREMENTAL'
+            WHEN scope_type = 'ALL' THEN 'FULL_INIT'
+            WHEN scope_type = 'FUND_CODE' THEN 'LAZY_LOAD'
+            ELSE scope_type
+        END AS sync_type,
+        CASE
+            WHEN scope_value IS NULL THEN scope_type
+            ELSE CONCAT(scope_type, ':', scope_value)
+        END AS sync_scope,
+        CASE WHEN scope_type = 'FUND_CODE' THEN scope_value ELSE NULL END AS fund_code,
+        partition_key,
+        state,
+        state AS status,
+        quality_status,
+        cursor_value,
+        data_version,
+        checksum,
+        success_count,
+        rejected_count,
+        failed_count,
+        retry_count,
+        started_at,
+        finished_at,
+        duration_ms,
+        CASE
+            WHEN duration_ms IS NOT NULL THEN duration_ms
+            WHEN finished_at IS NULL THEN NULL
+            ELSE CAST(EXTRACT(EPOCH FROM (finished_at - started_at)) * 1000 AS bigint)
+        END AS duration_millis,
+        upstream_latency_ms,
+        stale_count,
+        cache_invalidated_count,
+        error_code,
+        error_message,
+        error_message AS error_summary
+    </sql>
+
+    <select id="selectRunPage" resultType="org.dromara.fund.domain.vo.FundSyncRunVo">
+        SELECT <include refid="runVoColumns"/>
+        FROM fund_sync_run
+        WHERE 1 = 1
+        <if test="bo.fetchBatchId != null and bo.fetchBatchId != ''">
+            AND fetch_batch_id = #{bo.fetchBatchId}
+        </if>
+        <if test="bo.dataset != null and bo.dataset != ''">
+            AND dataset = #{bo.dataset}
+        </if>
+        <if test="bo.scopeType != null and bo.scopeType != ''">
+            AND scope_type = #{bo.scopeType}
+        </if>
+        <if test="bo.scopeValue != null and bo.scopeValue != ''">
+            AND scope_value = #{bo.scopeValue}
+        </if>
+        <if test="bo.syncScope != null and bo.syncScope != ''">
+            AND (scope_type = #{bo.syncScope} OR CONCAT(scope_type, ':', COALESCE(scope_value, '')) = #{bo.syncScope})
+        </if>
+        <if test="bo.fundCode != null and bo.fundCode != ''">
+            AND scope_type = 'FUND_CODE'
+            AND scope_value = #{bo.fundCode}
+        </if>
+        <if test="bo.state != null and bo.state != ''">
+            AND state = #{bo.state}
+        </if>
+        <if test="bo.status != null and bo.status != ''">
+            AND state = #{bo.status}
+        </if>
+        <if test="bo.syncType != null and bo.syncType != ''">
+            AND (
+                (#{bo.syncType} = 'INCREMENTAL' AND scope_value = 'incremental')
+                OR (#{bo.syncType} = 'FULL_INIT' AND scope_type = 'ALL')
+                OR (#{bo.syncType} = 'LAZY_LOAD' AND scope_type = 'FUND_CODE')
+            )
+        </if>
+        <if test="bo.startedAtStart != null">
+            AND started_at &gt;= #{bo.startedAtStart}
+        </if>
+        <if test="bo.startedAtEnd != null">
+            AND started_at &lt;= #{bo.startedAtEnd}
+        </if>
+        ORDER BY started_at DESC, id DESC
+    </select>
+
+    <select id="selectRunDetail" resultType="org.dromara.fund.domain.vo.FundSyncRunVo">
+        SELECT <include refid="runVoColumns"/>
+        FROM fund_sync_run
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectRunning" resultType="org.dromara.fund.domain.vo.FundSyncRunVo">
+        SELECT <include refid="runVoColumns"/>
+        FROM fund_sync_run
+        WHERE state = 'RUNNING'
+        <if test="dataset != null and dataset != ''">
+            AND dataset = #{dataset}
+        </if>
+        <if test="scopeType != null and scopeType != ''">
+            AND scope_type = #{scopeType}
+        </if>
+        <if test="scopeValue != null and scopeValue != ''">
+            AND scope_value = #{scopeValue}
+        </if>
+        ORDER BY started_at DESC
+    </select>
+
+    <select id="selectLatestStatus" resultType="org.dromara.fund.domain.dto.FundSyncStatusSummaryVo">
+        SELECT dataset,
+               source,
+               source_time,
+               business_date,
+               scope_type,
+               scope_value,
+               state,
+               quality_status,
+               fetch_batch_id,
+               data_version,
+               checksum,
+               started_at,
+               finished_at,
+               success_count,
+               rejected_count,
+               failed_count,
+               retry_count,
+               upstream_latency_ms,
+               stale_count,
+               cache_invalidated_count,
+               error_code,
+               error_message
+        FROM fund_sync_run
+        WHERE dataset = #{dataset}
+        <if test="scopeType != null and scopeType != ''">
+            AND scope_type = #{scopeType}
+        </if>
+        <if test="scopeValue != null and scopeValue != ''">
+            AND scope_value = #{scopeValue}
+        </if>
+        ORDER BY started_at DESC, id DESC
+        LIMIT 1
+    </select>
+</mapper>

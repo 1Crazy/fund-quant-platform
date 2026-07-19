@@ -3,6 +3,7 @@ package org.dromara.fund.mapper;
 import org.apache.ibatis.annotations.Param;
 import org.dromara.common.mybatis.core.mapper.BaseMapperPlus;
 import org.dromara.fund.domain.FundNav;
+import org.dromara.fund.domain.dto.FundDataVersionDto;
 import org.dromara.fund.domain.vo.FundNavPointVo;
 
 import java.util.List;
@@ -25,4 +26,6 @@ public interface FundNavMapper extends BaseMapperPlus<FundNav, FundNav> {
 
     /** PostgreSQL 按基金代码和净值日期幂等写入。 */
     int upsertBatch(@Param("items") List<FundNav> items);
+
+    FundDataVersionDto selectLatestVersion(@Param("fundCode") String fundCode);
 }

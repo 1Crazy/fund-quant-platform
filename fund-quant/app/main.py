@@ -43,7 +43,15 @@ async def request_context(
 async def handle_business_error(request: Request, exc: FundQuantError) -> JSONResponse:
     envelope = ApiEnvelope[None](
         success=False,
-        error=ErrorDetail(code=exc.code, message=exc.message, retryable=exc.retryable),
+        error=ErrorDetail(
+            code=exc.code,
+            message=exc.message,
+            retryable=exc.retryable,
+            category=exc.category,
+            dataset=exc.dataset,
+            retryAfterSeconds=exc.retry_after_seconds,
+            details=exc.details,
+        ),
         requestId=getattr(request.state, "request_id", uuid.uuid4().hex),
     )
     return JSONResponse(status_code=exc.status_code, content=envelope.model_dump(mode="json"))

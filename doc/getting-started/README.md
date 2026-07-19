@@ -6,6 +6,7 @@
 
 - [后端启动手册](./backend-startup.md)
 - [Python 量化服务启动手册](./python-startup.md)
+- [基金数据中心运行手册](../fund-data-center-runbook.md)
 
 ## 推荐阅读顺序
 

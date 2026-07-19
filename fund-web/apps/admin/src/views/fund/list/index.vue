@@ -22,6 +22,8 @@ import { storeToRefs } from 'pinia';
 import type { FundApi } from '#/api/fund';
 import { useFundStore } from '#/store';
 
+import { qualityStatusMeta, syncStatusMeta } from '../utils/status';
+
 const router = useRouter();
 const fundStore = useFundStore();
 const { list, listLoading, query, total } = storeToRefs(fundStore);
@@ -35,6 +37,11 @@ const rangeSummary = computed(() => {
 
 function formatNav(value?: number) {
   return value == null ? '--' : value.toFixed(4);
+}
+
+function formatSource(row: FundApi.FundListItem) {
+  if (!row.source) return '--';
+  return row.sourceUpdatedAt ? `${row.source} · ${row.sourceUpdatedAt}` : row.source;
 }
 
 function growthClass(value?: number) {
@@ -83,7 +90,7 @@ onMounted(() => fundStore.fetchList());
       </section>
 
       <ElCard class="filter-panel" shadow="never">
-        <div class="grid gap-3 md:grid-cols-[180px_1fr_180px_auto]">
+        <div class="grid gap-3 xl:grid-cols-[150px_1fr_150px_150px_150px_150px_auto]">
           <ElInput
             v-model="query.fundCode"
             clearable
@@ -103,6 +110,26 @@ onMounted(() => fundStore.fetchList());
             <ElOption label="债券型" value="债券型" />
             <ElOption label="指数型" value="指数型" />
             <ElOption label="QDII" value="QDII" />
+          </ElSelect>
+          <ElSelect v-model="query.source" clearable placeholder="数据来源">
+            <ElOption label="AkShare 目录" value="AKSHARE_CATALOG" />
+            <ElOption label="AkShare 基金档案" value="AKSHARE_XQ" />
+            <ElOption label="AkShare" value="AKSHARE" />
+          </ElSelect>
+          <ElSelect v-model="query.qualityStatus" clearable placeholder="质量状态">
+            <ElOption label="正常" value="NORMAL" />
+            <ElOption label="部分可用" value="PARTIAL" />
+            <ElOption label="空数据" value="EMPTY" />
+            <ElOption label="过期" value="STALE" />
+            <ElOption label="失败" value="FAILED" />
+          </ElSelect>
+          <ElSelect v-model="query.syncStatus" clearable placeholder="同步状态">
+            <ElOption label="等待中" value="PENDING" />
+            <ElOption label="运行中" value="RUNNING" />
+            <ElOption label="成功" value="SUCCESS" />
+            <ElOption label="部分成功" value="PARTIAL_SUCCESS" />
+            <ElOption label="失败" value="FAILED" />
+            <ElOption label="已取消" value="CANCELLED" />
           </ElSelect>
           <div class="flex gap-2">
             <ElButton :loading="listLoading" type="primary" @click="search">
@@ -137,10 +164,36 @@ onMounted(() => fundStore.fetchList());
               <ElTag effect="plain" type="info">{{ row.fundType }}</ElTag>
             </template>
           </ElTableColumn>
+          <ElTableColumn label="来源" min-width="170" show-overflow-tooltip>
+            <template #default="{ row }">{{ formatSource(row) }}</template>
+          </ElTableColumn>
+          <ElTableColumn label="质量状态" min-width="120">
+            <template #default="{ row }">
+              <ElTag :type="qualityStatusMeta(row.qualityStatus).type" effect="plain">
+                {{ qualityStatusMeta(row.qualityStatus).label }}
+              </ElTag>
+            </template>
+          </ElTableColumn>
           <ElTableColumn align="right" label="最新净值" min-width="120">
             <template #default="{ row }">{{ formatNav(row.latestNav) }}</template>
           </ElTableColumn>
-          <ElTableColumn align="center" label="净值日期" min-width="120" prop="navDate" />
+          <ElTableColumn align="center" label="最新 NAV 日期" min-width="130" prop="navDate">
+            <template #default="{ row }">
+              <div class="leading-5">
+                <div>{{ row.navDate || '--' }}</div>
+                <div v-if="row.latestNavQualityStatus" class="text-xs text-slate-500">
+                  {{ qualityStatusMeta(row.latestNavQualityStatus).label }}
+                </div>
+              </div>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="同步状态" min-width="120">
+            <template #default="{ row }">
+              <ElTag :type="syncStatusMeta(row.syncStatus).type" effect="plain">
+                {{ syncStatusMeta(row.syncStatus).label }}
+              </ElTag>
+            </template>
+          </ElTableColumn>
           <ElTableColumn align="right" label="盘中估值" min-width="120">
             <template #default="{ row }">{{ formatNav(row.estimateNav) }}</template>
           </ElTableColumn>

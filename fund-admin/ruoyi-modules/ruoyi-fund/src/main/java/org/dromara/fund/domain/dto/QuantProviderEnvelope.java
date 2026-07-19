@@ -20,5 +20,6 @@ public class QuantProviderEnvelope<T> {
         private String code;
         private String message;
         private boolean retryable;
+        private Integer retryAfterSeconds;
     }
 }

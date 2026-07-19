@@ -8,6 +8,7 @@ import java.io.Serializable;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 /**
  * 基金列表视图。
@@ -21,8 +22,24 @@ public class FundListVo implements Serializable {
     private String fundCode;
     private String fundName;
     private String fundType;
+    private String source;
+    private OffsetDateTime sourceUpdatedAt;
+    private LocalDate asOfDate;
+    private LocalDate businessDate;
+    private String dataVersion;
+    private String qualityStatus;
+    private String qualityReason;
     private BigDecimal latestNav;
     private LocalDate navDate;
+    private String latestNavDataVersion;
+    private String latestNavQualityStatus;
+    private String latestNavQualityReason;
+    private LocalDate latestHoldingReportDate;
+    private String latestHoldingDataVersion;
+    private String latestHoldingQualityStatus;
+    private String syncState;
+    private String syncStatus;
+    private String syncFetchBatchId;
     private BigDecimal estimateNav;
     private BigDecimal estimateGrowthRate;
     private LocalDateTime estimateTime;

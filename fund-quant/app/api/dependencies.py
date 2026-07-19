@@ -17,12 +17,14 @@ def get_cache() -> RedisCache:
 
 @lru_cache
 def get_fund_repository() -> FundRepository:
-    return FundRepository(AkShareClient(), get_cache(), get_settings())
+    settings = get_settings()
+    return FundRepository(AkShareClient(settings), get_cache(), settings)
 
 
 @lru_cache
 def get_stock_repository() -> StockRepository:
-    return StockRepository(AkShareClient(), get_cache(), get_settings())
+    settings = get_settings()
+    return StockRepository(AkShareClient(settings), get_cache(), settings)
 
 
 @lru_cache

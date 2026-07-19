@@ -142,6 +142,8 @@ tenant:
     - market_temperature
     - market_temperature_item
     - fund_holding
+    - fund_sync_run
+    - fund_data_quality_issue
     - fund_industry_allocation
 
 # 基金实时估值配置
@@ -152,6 +154,19 @@ fund:
     provider-connect-timeout: 2s
     provider-read-timeout: 90s
     search-limit: 100
+    # 以下键与 FundDataProperties 一一对应，关闭调度后查询仍读取最后成功版本。
+    enabled: ${FUND_SYNC_ENABLED:true}
+    schedule-enabled: ${FUND_SYNC_SCHEDULE_ENABLED:true}
+    catalog-page-size: ${FUND_SYNC_PAGE_SIZE:200}
+    provider-rate-per-minute: ${FUND_SYNC_RATE_LIMIT_PER_MINUTE:60}
+    max-retry-attempts: ${FUND_SYNC_RETRY_MAX_ATTEMPTS:3}
+    retry-base-backoff: ${FUND_SYNC_RETRY_BACKOFF_INITIAL:2s}
+    retry-max-backoff: ${FUND_SYNC_RETRY_BACKOFF_MAX:2m}
+    info-cache-ttl: ${FUND_CACHE_INFO_TTL:30m}
+    nav-cache-ttl: ${FUND_CACHE_NAV_TTL:1h}
+    holding-cache-ttl: ${FUND_CACHE_HOLDING_TTL:6h}
+    sync-status-cache-ttl: ${FUND_CACHE_SYNC_STATUS_TTL:30s}
+    incremental-nav-days: ${FUND_SYNC_INCREMENTAL_NAV_DAYS:14}
   estimate:
     # 上游估值接口可在不同环境通过环境变量替换，默认关闭远端回源，仅使用数据库与缓存。
     provider-url: ${FUND_ESTIMATE_PROVIDER_URL:}

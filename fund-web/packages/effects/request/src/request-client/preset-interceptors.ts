@@ -23,12 +23,19 @@ export const defaultResponseInterceptor = ({
       const { config, data: responseData, status } = response;
 
       if (config.responseReturn === 'raw') {
-        return response;
+        // 即使调用方需要原始响应，认证失效也必须交由认证拦截器处理。
+        if (responseData?.[codeField] !== 401) {
+          return response;
+        }
       }
 
       if (status >= 200 && status < 400) {
         if (config.responseReturn === 'body') {
-          return responseData;
+          // RuoYi 可能以 HTTP 200 + { code: 401 } 返回认证异常。
+          // 不能在 body 模式直接透传，否则会绕过后续认证拦截器。
+          if (responseData?.[codeField] !== 401) {
+            return responseData;
+          }
         } else if (
           isFunction(successCode)
             ? successCode(responseData[codeField])
@@ -60,8 +67,11 @@ export const authenticateResponseInterceptor = ({
   return {
     rejected: async (error) => {
       const { config, response } = error;
-      // 如果不是 401 错误，直接抛出异常
-      if (response?.status !== 401) {
+      // RuoYi 的认证异常可能以 HTTP 200 携带业务码 401 返回。
+      // 两种形式都应进入相同的刷新令牌或重新登录流程。
+      const isUnauthorized =
+        response?.status === 401 || response?.data?.code === 401;
+      if (!isUnauthorized) {
         throw error;
       }
       // 判断是否启用了 refreshToken 功能

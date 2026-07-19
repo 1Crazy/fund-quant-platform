@@ -28,6 +28,16 @@ const routes: RouteRecordRaw[] = [
         name: 'FundDetail',
         path: 'detail',
       },
+      {
+        component: () => import('#/views/fund/sync/index.vue'),
+        meta: {
+          authority: ['*:*:*', 'fund:sync:list'],
+          icon: 'lucide:activity',
+          title: '同步管理',
+        },
+        name: 'FundSync',
+        path: 'sync',
+      },
     ],
   },
 ];

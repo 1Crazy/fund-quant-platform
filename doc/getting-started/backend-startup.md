@@ -167,7 +167,7 @@ psql -h localhost -p 5432 -U postgres -d fund_quant \
   -f script/sql/postgres/postgres_ry_vue_5.X.sql
 ```
 
-### 5. 初始化基金实时估值表
+### 5. 初始化基金数据中心与实时估值表
 
 ```bash
 cd /Users/hong/Documents/my-project/jj/fund-admin
@@ -180,10 +180,20 @@ psql -h localhost -p 5432 -U postgres -d fund_quant \
 
 - `fund_info`
 - `fund_nav`
+- `fund_holding`
+- `fund_sync_run`
+- `fund_data_quality_issue`
 - `fund_estimate`
 - 业务索引
 - RuoYi 基金菜单
 - 管理员角色菜单授权
+
+已有数据库升级到基金数据中心结构时执行有序 update SQL：
+
+```bash
+psql -h localhost -p 5432 -U postgres -d fund_quant \
+  -f script/sql/update/postgres/update_fund_data_center_v1.sql
+```
 
 检查表是否存在：
 
@@ -326,6 +336,24 @@ fund:
 mvn -pl ruoyi-admin -am spring-boot:run -Pdev \
   -Dspring-boot.run.arguments="--fund.estimate.schedule-enabled=false --snail-job.enabled=false --spring.boot.admin.client.enabled=false"
 ```
+
+### 数据中心同步参数
+
+数据中心同步默认开启，长批同步由 SnailJob 承载。开发环境可以通过环境变量调整供应方地址、分页、重试、限速和缓存 TTL：
+
+```bash
+export FUND_DATA_PROVIDER_BASE_URL='http://localhost:8000'
+export FUND_SYNC_ENABLED=true
+export FUND_SYNC_PAGE_SIZE=200
+export FUND_SYNC_RETRY_MAX_ATTEMPTS=3
+export FUND_SYNC_RATE_LIMIT_PER_MINUTE=60
+export FUND_CACHE_INFO_TTL=30m
+export FUND_CACHE_NAV_TTL=1h
+export FUND_CACHE_HOLDING_TTL=6h
+export FUND_CACHE_SYNC_STATUS_TTL=30s
+```
+
+需要临时禁用同步时设置 `FUND_SYNC_ENABLED=false`；查询仍读取 PostgreSQL 中最后成功版本。更完整的全量初始化、增量运行、重试和回滚说明见 [基金数据中心运行手册](../fund-data-center-runbook.md)。
 
 ## 五、打包启动方式
 

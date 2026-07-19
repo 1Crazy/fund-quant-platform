@@ -4,9 +4,9 @@
 
 ## 职责边界
 
-- Python：AkShare 数据采集、字段标准化、Redis 数据缓存、估值计算。
-- Java：鉴权、面向前端的业务 API、45 秒业务缓存、估值快照落库和失败降级。
-- Python 不直连 RuoYi PostgreSQL，避免两个服务共同写业务表。
+- Python：AkShare/公开来源数据采集、字段标准化、Redis 数据缓存、估值计算；必要时只能通过只读角色读取跨租户共享基金数据集。
+- Java：鉴权、面向前端的业务 API、私有范围参数传递、PostgreSQL 唯一写入口、Redis 业务缓存、估值快照落库和失败降级。
+- Python 不写 RuoYi PostgreSQL，不读取用户、租户、组合等私有业务表，避免两个服务共同写业务表。
 
 ## 目录结构
 
@@ -171,6 +171,43 @@ export FUND_ESTIMATE_PROVIDER_URL='http://localhost:8000/internal/v1/data/estima
 Java 上游读取超时默认设置为 30 秒，用于覆盖 AkShare 冷缓存的首次加载；Python 缓存命中后通常无需等待完整超时。可通过 `fund.estimate.provider-read-timeout` 调整。
 
 前端精确输入六位基金代码后仍只调用 Java `GET /fund/list`。Java 在本地不存在该基金时自动调用本服务的基金和净值接口，并幂等写入 `fund_info`、`fund_nav`，随后从 PostgreSQL 返回分页结果。
+
+### 数据中心同步供应方接口
+
+这些接口供 Java 同步编排调用，仍使用统一 `success/data/error/requestId` 包装。`data` 为 `SyncEnvelope`，包含 `meta`、`records` 和 `issues`；`meta` 固定携带 `batchId`、`dataset`、`source`、`sourceTime`、`fetchedAt`、`qualityStatus`、`checksum`、`dataVersion`、成功/拒绝/失败计数及分页游标。
+
+```http
+POST /internal/v1/data/sync/catalog
+Content-Type: application/json
+
+{"page":1,"pageSize":200,"batchId":"..."}
+```
+
+```http
+POST /internal/v1/data/sync/fund/000001?batchId=...
+POST /internal/v1/data/sync/nav/000001?startDate=2026-01-01&endDate=2026-06-30&batchId=...
+POST /internal/v1/data/sync/holdings/000001?reportDate=2026-06-30&batchId=...
+```
+
+`/sync/fund/{code}`、`/sync/nav/{code}` 和 `/sync/holdings/{code}` 可额外接收可选 JSON body：
+
+```json
+{
+  "batchId": "...",
+  "requestedBy": "java-sync",
+  "sharedContext": [
+    {
+      "fundCode": "000001",
+      "latestDataVersion": "fund_nav:...",
+      "latestNavDate": "2026-06-30",
+      "latestHoldingReportDate": "2026-06-30",
+      "qualityStatus": "NORMAL"
+    }
+  ]
+}
+```
+
+该 body 只承载 Java 显式传入的共享基金上下文，不允许包含用户、租户或组合私有表数据。
 
 ## 估值口径
 

@@ -9,6 +9,7 @@ import org.dromara.common.mybatis.core.domain.BaseEntity;
 import java.io.Serial;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 
 /**
  * 基金历史净值。
@@ -36,4 +37,16 @@ public class FundNav extends BaseEntity {
     private BigDecimal dailyGrowthRate;
     /** 数据来源。 */
     private String source;
+    /** 上游来源数据时间。 */
+    private OffsetDateTime sourceTime;
+    /** 抓取批次 ID。 */
+    private String fetchBatchId;
+    /** 数据版本。 */
+    private String dataVersion;
+    /** 当前记录校验和。 */
+    private String checksum;
+    /** 数据质量状态。 */
+    private String qualityStatus;
+    /** 数据质量原因摘要。 */
+    private String qualityReason;
 }
