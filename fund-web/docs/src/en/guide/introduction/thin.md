@@ -7,7 +7,7 @@ Starting from version `5.0`, we no longer provide slimmed-down repositories or b
 First, identify the version of the `UI` component library you need, and then delete the corresponding applications. For example, if you choose to use `Ant Design Vue`, you can delete the other applications. Simply remove the following two folders:
 
 ```bash
-apps/web-ele
+apps/admin
 apps/web-native
 
 ```
@@ -54,13 +54,13 @@ After slimming down, you may need to adjust commands according to your project. 
   "scripts": {
     "build:antd": "pnpm run build --filter=@vben/web-antd",
     "build:docs": "pnpm run build --filter=@vben/docs",
-    "build:ele": "pnpm run build --filter=@vben/web-ele",
+    "build:admin": "pnpm run build --filter=admin",
     "build:naive": "pnpm run build --filter=@vben/web-naive",
     "build:tdesign": "pnpm run build --filter=@vben/web-tdesign",
     "build:play": "pnpm run build --filter=@vben/playground",
     "dev:antd": "pnpm -F @vben/web-antd run dev",
     "dev:docs": "pnpm -F @vben/docs run dev",
-    "dev:ele": "pnpm -F @vben/web-ele run dev",
+    "dev:admin": "pnpm -F admin run dev",
     "dev:play": "pnpm -F @vben/playground run dev",
     "dev:naive": "pnpm -F @vben/web-naive run dev"
   }

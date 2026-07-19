@@ -58,8 +58,8 @@ The execution command is: `pnpm run [script]` or `npm run [script]`.
     "build:antdv-next": "pnpm run build --filter=@vben/web-antdv-next",
     // Build the documentation separately
     "build:docs": "pnpm run build --filter=@vben/docs",
-    // Build the web-ele application separately
-    "build:ele": "pnpm run build --filter=@vben/web-ele",
+    // Build the admin application separately
+    "build:admin": "pnpm run build --filter=admin",
     // Build the web-naive application separately
     "build:naive": "pnpm run build --filter=@vben/web-naive",
     // Build the web-tdesign application separately
@@ -90,8 +90,8 @@ The execution command is: `pnpm run [script]` or `npm run [script]`.
     "dev:antdv-next": "pnpm -F @vben/web-antdv-next run dev",
     // Start the documentation
     "dev:docs": "pnpm -F @vben/docs run dev",
-    // Start the web-ele application
-    "dev:ele": "pnpm -F @vben/web-ele run dev",
+    // Start the admin application
+    "dev:admin": "pnpm -F admin run dev",
     // Start the web-naive application
     "dev:naive": "pnpm -F @vben/web-naive run dev",
     // Start the web-tdesign application
@@ -154,10 +154,10 @@ To run the `web-naive` application:
 pnpm dev:naive
 ```
 
-To run the `web-ele` application:
+To run the `admin` application:
 
 ```bash
-pnpm dev:ele
+pnpm dev:admin
 ```
 
 To run the `web-tdesign` application:

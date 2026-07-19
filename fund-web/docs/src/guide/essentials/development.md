@@ -58,8 +58,8 @@ npm 脚本是项目常见的配置，用于执行一些常见的任务，比如�
     "build:antdv-next": "pnpm run build --filter=@vben/web-antdv-next",
     // 单独构建文档
     "build:docs": "pnpm run build --filter=@vben/docs",
-    // 单独构建 web-ele 应用
-    "build:ele": "pnpm run build --filter=@vben/web-ele",
+    // 单独构建 admin 应用
+    "build:admin": "pnpm run build --filter=admin",
     // 单独构建 web-naive 应用
     "build:naive": "pnpm run build --filter=@vben/web-naive",
     // 单独构建 web-tdesign 应用
@@ -90,8 +90,8 @@ npm 脚本是项目常见的配置，用于执行一些常见的任务，比如�
     "dev:antdv-next": "pnpm -F @vben/web-antdv-next run dev",
     // 启动文档
     "dev:docs": "pnpm -F @vben/docs run dev",
-    // 启动 web-ele 应用
-    "dev:ele": "pnpm -F @vben/web-ele run dev",
+    // 启动 admin 应用
+    "dev:admin": "pnpm -F admin run dev",
     // 启动 web-naive 应用
     "dev:naive": "pnpm -F @vben/web-naive run dev",
     // 启动 web-tdesign 应用
@@ -154,10 +154,10 @@ pnpm dev:antdv-next
 pnpm dev:naive
 ```
 
-运行 `web-ele` 应用：
+运行 `admin` 应用：
 
 ```bash
-pnpm dev:ele
+pnpm dev:admin
 ```
 
 运行 `web-tdesign` 应用：

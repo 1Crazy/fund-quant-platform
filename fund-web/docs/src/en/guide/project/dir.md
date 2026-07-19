@@ -9,7 +9,7 @@ The repository uses Monorepo management, and the project structure is as follows
 │   ├── backend-mock # Backend mock service application
 │   ├── web-antd # Frontend application based on Ant Design Vue
 │   ├── web-antdv-next # Frontend application based on Ant Design Vue Next
-│   ├── web-ele # Frontend application based on Element Plus
+│   ├── admin # Element Plus-based administration application
 │   ├── web-naive # Frontend application based on Naive UI
 │   └── web-tdesign # Frontend application based on TDesign
 ├── cspell.json # CSpell configuration file
