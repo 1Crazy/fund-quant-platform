@@ -17,10 +17,10 @@
 
     <dependencies>
 
-        <!-- Mysql驱动包 -->
+        <!-- PostgreSQL 17 驱动由 Spring Boot 3.5 BOM 统一管理版本。 -->
         <dependency>
-            <groupId>com.mysql</groupId>
-            <artifactId>mysql-connector-j</artifactId>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
         </dependency>
 
 <!--        &lt;!&ndash; mp支持的数据库均支持 只需要增加对应的jdbc依赖即可 &ndash;&gt;-->
@@ -91,6 +91,12 @@
         <dependency>
             <groupId>org.dromara</groupId>
             <artifactId>ruoyi-workflow</artifactId>
+        </dependency>
+
+        <!-- 基金实时估值业务模块 -->
+        <dependency>
+            <groupId>org.dromara</groupId>
+            <artifactId>ruoyi-fund</artifactId>
         </dependency>
 
         <dependency>

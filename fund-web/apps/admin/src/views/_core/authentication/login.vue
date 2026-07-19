@@ -1,70 +1,28 @@
 <script lang="ts" setup>
 import type { VbenFormSchema } from '@vben/common-ui';
-import type { BasicOption } from '@vben/types';
 
-import { computed, markRaw } from 'vue';
+import { computed } from 'vue';
 
-import { AuthenticationLogin, SliderCaptcha, z } from '@vben/common-ui';
+import { AuthenticationLogin, z } from '@vben/common-ui';
 import { $t } from '@vben/locales';
 
+import { RUOYI_CLIENT_ID } from '#/api/request';
 import { useAuthStore } from '#/store';
 
 defineOptions({ name: 'Login' });
 
 const authStore = useAuthStore();
 
-const MOCK_USER_OPTIONS: BasicOption[] = [
-  {
-    label: 'Super',
-    value: 'vben',
-  },
-  {
-    label: 'Admin',
-    value: 'admin',
-  },
-  {
-    label: 'User',
-    value: 'jack',
-  },
-];
+const isDev = import.meta.env.DEV;
 
 const formSchema = computed((): VbenFormSchema[] => {
   return [
-    {
-      component: 'VbenSelect',
-      componentProps: {
-        options: MOCK_USER_OPTIONS,
-        placeholder: $t('authentication.selectAccount'),
-      },
-      fieldName: 'selectAccount',
-      label: $t('authentication.selectAccount'),
-      rules: z
-        .string()
-        .min(1, { message: $t('authentication.selectAccount') })
-        .optional()
-        .default('vben'),
-    },
     {
       component: 'VbenInput',
       componentProps: {
         placeholder: $t('authentication.usernameTip'),
       },
-      dependencies: {
-        trigger(values, form) {
-          if (values.selectAccount) {
-            const findUser = MOCK_USER_OPTIONS.find(
-              (item) => item.value === values.selectAccount,
-            );
-            if (findUser) {
-              form.setValues({
-                password: '123456',
-                username: findUser.value,
-              });
-            }
-          }
-        },
-        triggerFields: ['selectAccount'],
-      },
+      defaultValue: isDev ? 'admin' : '',
       fieldName: 'username',
       label: $t('authentication.username'),
       rules: z.string().min(1, { message: $t('authentication.usernameTip') }),
@@ -74,25 +32,46 @@ const formSchema = computed((): VbenFormSchema[] => {
       componentProps: {
         placeholder: $t('authentication.password'),
       },
+      // 仅开发模式预填初始化密码，生产构建不会携带表单默认凭据。
+      defaultValue: isDev ? 'admin123' : '',
       fieldName: 'password',
       label: $t('authentication.password'),
       rules: z.string().min(1, { message: $t('authentication.passwordTip') }),
     },
-    {
-      component: markRaw(SliderCaptcha),
-      fieldName: 'captcha',
-      rules: z.boolean().refine((value) => value, {
-        message: $t('authentication.verifyRequiredTip'),
-      }),
-    },
   ];
 });
+
+async function handleLogin(values: Record<string, unknown>) {
+  await authStore.authLogin({
+    ...values,
+    clientId: RUOYI_CLIENT_ID,
+    grantType: 'password',
+    tenantId: '000000',
+  });
+}
 </script>
 
 <template>
   <AuthenticationLogin
     :form-schema="formSchema"
     :loading="authStore.loginLoading"
-    @submit="authStore.authLogin"
+    :show-code-login="false"
+    :show-forget-password="false"
+    :show-qrcode-login="false"
+    :show-register="false"
+    :show-third-party-login="false"
+    sub-title="使用 RuoYi-Vue-Plus 开发账号进入基金量化决策系统"
+    title="基金量化决策系统"
+    @submit="handleLogin"
   />
+  <div
+    v-if="isDev"
+    class="mx-auto mt-4 max-w-md rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+  >
+    <div class="font-medium">开发环境登录</div>
+    <div class="mt-1">账号：admin　密码：admin123</div>
+    <div class="mt-1 text-xs text-amber-700">
+      该提示仅在 Vite 开发模式显示。
+    </div>
+  </div>
 </template>

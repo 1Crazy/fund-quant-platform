@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.dromara.fund.mapper.FundInfoMapper">
+
+    <select id="selectFundPage" resultType="org.dromara.fund.domain.vo.FundListVo">
+        SELECT fi.fund_code,
+               fi.fund_name,
+               fi.fund_type,
+               nav.unit_nav AS latest_nav,
+               nav.nav_date,
+               estimate.estimate_nav,
+               estimate.estimate_growth_rate,
+               estimate.estimate_time,
+               CASE
+                   WHEN estimate.estimate_time IS NULL THEN TRUE
+                   WHEN estimate.source_status != 'NORMAL' THEN TRUE
+                   WHEN estimate.estimate_time &lt; CURRENT_TIMESTAMP - INTERVAL '3 minutes' THEN TRUE
+                   ELSE FALSE
+               END AS stale
+        FROM fund_info fi
+        LEFT JOIN LATERAL (
+            SELECT fn.unit_nav, fn.nav_date
+            FROM fund_nav fn
+            WHERE fn.fund_code = fi.fund_code
+            ORDER BY fn.nav_date DESC
+            LIMIT 1
+        ) nav ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT fe.estimate_nav,
+                   fe.estimate_growth_rate,
+                   fe.estimate_time,
+                   fe.source_status
+            FROM fund_estimate fe
+            WHERE fe.fund_code = fi.fund_code
+            ORDER BY fe.estimate_time DESC
+            LIMIT 1
+        ) estimate ON TRUE
+        WHERE fi.del_flag = 0
+        <if test="bo.fundCode != null and bo.fundCode != ''">
+            AND fi.fund_code = #{bo.fundCode}
+        </if>
+        <if test="bo.fundName != null and bo.fundName != ''">
+            AND fi.fund_name LIKE CONCAT('%', #{bo.fundName}, '%')
+        </if>
+        <if test="bo.fundType != null and bo.fundType != ''">
+            AND fi.fund_type = #{bo.fundType}
+        </if>
+        <if test="bo.status != null and bo.status != ''">
+            AND fi.status = #{bo.status}
+        </if>
+        <if test="bo.status == null or bo.status == ''">
+            AND fi.status = '0'
+        </if>
+        ORDER BY fi.fund_code
+    </select>
+</mapper>

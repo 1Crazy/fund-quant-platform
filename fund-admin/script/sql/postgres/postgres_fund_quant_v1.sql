@@ -289,4 +289,22 @@ CREATE TABLE portfolio_risk_snapshot (
 
 CREATE INDEX idx_portfolio_risk_portfolio_date ON portfolio_risk_snapshot (tenant_id, portfolio_id, trade_date DESC);
 
+-- ----------------------------
+-- 基金实时估值菜单与权限
+-- 菜单 ID 使用独立号段，重复执行时通过 ON CONFLICT 保持幂等。
+-- ----------------------------
+INSERT INTO sys_menu (
+    menu_id, menu_name, parent_id, order_num, path, component, query_param,
+    is_frame, is_cache, menu_type, visible, status, perms, icon,
+    create_dept, create_by, create_time, update_by, update_time, remark
+) VALUES
+    (1600, '基金中心', 0, 10, 'fund', NULL, NULL, '1', '0', 'M', '0', '0', '', 'chart-no-axes-combined', 103, 1, now(), NULL, NULL, '基金量化决策业务菜单'),
+    (1601, '基金实时估值', 1600, 1, 'list', 'fund/list/index', NULL, '1', '0', 'C', '0', '0', 'fund:info:list', 'list-filter', 103, 1, now(), NULL, NULL, '基金列表与实时估值'),
+    (1602, '基金详情查询', 1601, 1, '#', '', NULL, '1', '0', 'F', '0', '0', 'fund:info:query', '#', 103, 1, now(), NULL, NULL, '')
+ON CONFLICT (menu_id) DO NOTHING;
+
+INSERT INTO sys_role_menu (role_id, menu_id)
+VALUES (1, 1600), (1, 1601), (1, 1602)
+ON CONFLICT (role_id, menu_id) DO NOTHING;
+
 COMMIT;

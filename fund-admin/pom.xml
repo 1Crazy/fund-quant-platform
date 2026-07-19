@@ -17,7 +17,8 @@
         <spring-boot.version>3.5.15</spring-boot.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <java.version>17</java.version>
+        <!-- 本项目使用 SDKMAN 管理 JDK，编译与运行环境统一锁定到 JDK 21。 -->
+        <java.version>21</java.version>
         <mybatis.version>3.5.19</mybatis.version>
         <springdoc.version>2.8.17</springdoc.version>
         <therapi-javadoc.version>0.15.0</therapi-javadoc.version>
@@ -357,6 +358,13 @@
                 <version>${revision}</version>
             </dependency>
 
+            <!-- 基金实时估值业务模块 -->
+            <dependency>
+                <groupId>org.dromara</groupId>
+                <artifactId>ruoyi-fund</artifactId>
+                <version>${revision}</version>
+            </dependency>
+
         </dependencies>
     </dependencyManagement>
 
@@ -495,5 +503,3 @@
     </pluginRepositories>
 
 </project>
-
-

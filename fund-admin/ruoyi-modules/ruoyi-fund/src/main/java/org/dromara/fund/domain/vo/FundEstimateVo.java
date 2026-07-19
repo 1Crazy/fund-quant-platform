@@ -1,0 +1,31 @@
+package org.dromara.fund.domain.vo;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Data;
+
+import java.io.Serial;
+import java.io.Serializable;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+/**
+ * 实时估值视图。
+ */
+@Data
+public class FundEstimateVo implements Serializable {
+
+    @Serial
+    private static final long serialVersionUID = 1L;
+
+    private String fundCode;
+    private BigDecimal estimateNav;
+    private BigDecimal estimateGrowthRate;
+    private BigDecimal previousNav;
+    private LocalDate previousNavDate;
+    private LocalDateTime estimateTime;
+    private String source;
+    @JsonProperty("isStale")
+    private boolean stale;
+    private String sourceStatus;
+}

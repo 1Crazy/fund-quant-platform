@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.dromara.fund.mapper.FundEstimateMapper">
+
+    <select id="selectLatest" resultType="org.dromara.fund.domain.FundEstimate">
+        SELECT id,
+               fund_code,
+               estimate_time,
+               estimate_nav,
+               estimate_growth_rate,
+               previous_nav,
+               previous_nav_date,
+               source,
+               source_status,
+               create_dept,
+               create_by,
+               create_time,
+               update_by,
+               update_time
+        FROM fund_estimate
+        WHERE fund_code = #{fundCode}
+        ORDER BY estimate_time DESC
+        LIMIT 1
+    </select>
+</mapper>

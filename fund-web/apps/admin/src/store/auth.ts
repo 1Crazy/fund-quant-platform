@@ -10,7 +10,7 @@ import { resetAllStores, useAccessStore, useUserStore } from '@vben/stores';
 import { ElNotification } from 'element-plus';
 import { defineStore } from 'pinia';
 
-import { getAccessCodesApi, getUserInfoApi, loginApi, logoutApi } from '#/api';
+import { getUserInfoApi, loginApi, logoutApi } from '#/api';
 import { $t } from '#/locales';
 
 export const useAuthStore = defineStore('auth', () => {
@@ -30,7 +30,7 @@ export const useAuthStore = defineStore('auth', () => {
     onSuccess?: () => Promise<void> | void,
   ) {
     // 异步处理用户登录操作并获取 accessToken
-    let userInfo: null | UserInfo = null;
+    let userInfo: null | (UserInfo & { permissions?: string[] }) = null;
     try {
       loginLoading.value = true;
       const { accessToken } = await loginApi(params);
@@ -41,15 +41,13 @@ export const useAuthStore = defineStore('auth', () => {
         accessStore.setAccessToken(accessToken);
 
         // 获取用户信息并存储到 accessStore 中
-        const [fetchUserInfoResult, accessCodes] = await Promise.all([
-          fetchUserInfo(),
-          getAccessCodesApi(),
-        ]);
+        const fetchUserInfoResult = await fetchUserInfo();
 
         userInfo = fetchUserInfoResult;
 
         userStore.setUserInfo(userInfo);
-        accessStore.setAccessCodes(accessCodes);
+        // RuoYi 将权限码随 /system/user/getInfo 一并返回，不再调用 Vben 模板的 /auth/codes。
+        accessStore.setAccessCodes(userInfo.permissions ?? []);
 
         if (accessStore.loginExpired) {
           accessStore.setLoginExpired(false);

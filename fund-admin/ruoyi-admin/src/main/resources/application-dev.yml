@@ -11,6 +11,15 @@ spring.boot.admin.client:
   username: @monitor.username@
   password: @monitor.password@
 
+# 开发环境先关闭图片验证码，避免本地登录还依赖验证码接口和 Redis 验证码缓存。
+captcha:
+  enable: false
+
+# 登录接口保留 RuoYi 的 ApiEncrypt 注解，但开发前端使用明文 JSON 调试协议。
+# 生产环境仍由 application.yml 保持开启，不能将此覆盖复制到生产配置。
+api-decrypt:
+  enabled: false
+
 --- # snail-job 配置
 snail-job:
   enabled: true
@@ -44,12 +53,11 @@ spring:
         # 主库数据源
         master:
           type: ${spring.datasource.type}
-          driverClassName: com.mysql.cj.jdbc.Driver
-          # jdbc 所有参数配置参考 https://lionli.blog.csdn.net/article/details/122018562
-          # rewriteBatchedStatements=true 批处理优化 大幅提升批量插入更新删除性能(对数据库有性能损耗 使用批量操作应考虑性能问题)
-          url: jdbc:mysql://localhost:3306/ry-vue?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=true&serverTimezone=GMT%2B8&autoReconnect=true&rewriteBatchedStatements=true&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true
-          username: root
-          password: root
+          driverClassName: org.postgresql.Driver
+          # PostgreSQL 17 开启 reWriteBatchedInserts，提升净值与估值批量写入效率。
+          url: jdbc:postgresql://localhost:5432/fund_quant?stringtype=unspecified&reWriteBatchedInserts=true
+          username: postgres
+          password: postgres
 #        # 从库数据源
 #        slave:
 #          lazy: true
@@ -101,8 +109,8 @@ spring.data:
     port: 6379
     # 数据库索引
     database: 0
-    # redis 密码必须配置
-    password: ruoyi123
+    # 本地开发 Redis 默认无密码，因此不要配置 password 属性。
+    # 如果 Redis 开启了密码，请通过环境变量 SPRING_DATA_REDIS_PASSWORD 注入，避免将密码提交到仓库。
     # 连接超时时间
     timeout: 10s
     # 是否开启ssl

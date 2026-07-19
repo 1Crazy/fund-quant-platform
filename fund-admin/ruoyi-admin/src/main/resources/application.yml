@@ -133,6 +133,27 @@ tenant:
     - sys_client
     - sys_oss_config
     - flow_spel
+    # 基金行情、净值和估值是跨租户共享的公共市场数据。
+    - fund_info
+    - fund_nav
+    - fund_estimate
+    - fund_trend_snapshot
+    - fund_signal_snapshot
+    - market_temperature
+    - market_temperature_item
+    - fund_holding
+    - fund_industry_allocation
+
+# 基金实时估值配置
+fund:
+  estimate:
+    # 上游估值接口可在不同环境通过环境变量替换，默认关闭远端回源，仅使用数据库与缓存。
+    provider-url: ${FUND_ESTIMATE_PROVIDER_URL:}
+    cache-ttl: 45s
+    stale-after: 3m
+    schedule-enabled: true
+    schedule-cron: "0 */5 9-15 * * MON-FRI"
+    zone-id: Asia/Shanghai
 
 # MyBatisPlus配置
 # https://baomidou.com/config/

@@ -47,12 +47,11 @@ spring:
         # 主库数据源
         master:
           type: ${spring.datasource.type}
-          driverClassName: com.mysql.cj.jdbc.Driver
-          # jdbc 所有参数配置参考 https://lionli.blog.csdn.net/article/details/122018562
-          # rewriteBatchedStatements=true 批处理优化 大幅提升批量插入更新删除性能(对数据库有性能损耗 使用批量操作应考虑性能问题)
-          url: jdbc:mysql://localhost:3306/ry-vue?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=true&serverTimezone=GMT%2B8&autoReconnect=true&rewriteBatchedStatements=true&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true
-          username: root
-          password: root
+          driverClassName: org.postgresql.Driver
+          # PostgreSQL 17 批量写入优化；生产连接信息优先从环境变量注入。
+          url: ${DB_URL:jdbc:postgresql://localhost:5432/fund_quant?stringtype=unspecified&reWriteBatchedInserts=true}
+          username: ${DB_USERNAME:postgres}
+          password: ${DB_PASSWORD:postgres}
 #        # 从库数据源
 #        slave:
 #          lazy: true

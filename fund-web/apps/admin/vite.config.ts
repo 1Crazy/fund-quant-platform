@@ -16,8 +16,8 @@ export default defineConfig(async () => {
           '/api': {
             changeOrigin: true,
             rewrite: (path) => path.replace(/^\/api/, ''),
-            // mock代理目标地址
-            target: 'http://localhost:5320/api',
+            // 开发环境直接代理到 RuoYi-Vue-Plus，业务 API 路径不额外增加前缀。
+            target: 'http://localhost:8080',
             ws: true,
           },
         },

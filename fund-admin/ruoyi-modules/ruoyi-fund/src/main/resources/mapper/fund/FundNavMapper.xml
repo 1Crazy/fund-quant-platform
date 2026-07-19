@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.dromara.fund.mapper.FundNavMapper">
+
+    <select id="selectLatest" resultType="org.dromara.fund.domain.vo.FundNavPointVo">
+        SELECT nav_date AS date,
+               unit_nav,
+               accumulated_nav,
+               daily_growth_rate
+        FROM fund_nav
+        WHERE fund_code = #{fundCode}
+        ORDER BY nav_date DESC
+        LIMIT 1
+    </select>
+
+    <select id="selectSeries" resultType="org.dromara.fund.domain.vo.FundNavPointVo">
+        SELECT nav_date AS date,
+               unit_nav,
+               accumulated_nav,
+               daily_growth_rate
+        FROM (
+            SELECT nav_date, unit_nav, accumulated_nav, daily_growth_rate
+            FROM fund_nav
+            WHERE fund_code = #{fundCode}
+            ORDER BY nav_date DESC
+            <if test="days > 0">
+                LIMIT #{days}
+            </if>
+        ) recent
+        ORDER BY nav_date
+    </select>
+</mapper>

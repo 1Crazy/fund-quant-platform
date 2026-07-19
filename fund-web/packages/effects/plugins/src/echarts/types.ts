@@ -5,6 +5,7 @@ import type {
   RadarSeriesOption,
 } from 'echarts/charts';
 import type {
+  DataZoomComponentOption,
   DatasetComponentOption,
   GridComponentOption,
   LegendComponentOption,
@@ -16,6 +17,7 @@ import type { ComposeOption } from 'echarts/core';
 
 export type ECOption = ComposeOption<
   | BarSeriesOption
+  | DataZoomComponentOption
   | DatasetComponentOption
   | GridComponentOption
   | LegendComponentOption
