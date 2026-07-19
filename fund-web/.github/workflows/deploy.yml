@@ -105,9 +105,9 @@ jobs:
       - name: Sed Config Base
         shell: bash
         run: |
-          sed -i  "s#VITE_COMPRESS\s*=.*#VITE_COMPRESS = gzip#g" ./apps/web-ele/.env.production
-          sed -i  "s#VITE_PWA\s*=.*#VITE_PWA = true#g" ./apps/web-ele/.env.production
-          cat ./apps/web-ele/.env.production
+          sed -i  "s#VITE_COMPRESS\s*=.*#VITE_COMPRESS = gzip#g" ./apps/admin/.env.production
+          sed -i  "s#VITE_PWA\s*=.*#VITE_PWA = true#g" ./apps/admin/.env.production
+          cat ./apps/admin/.env.production
 
       - name: Setup Node
         uses: ./.github/actions/setup-node
@@ -121,7 +121,7 @@ jobs:
           server: ${{ secrets.PRO_FTP_HOST }}
           username: ${{ secrets.WEB_ELE_FTP_ACCOUNT }}
           password: ${{ secrets.WEB_ELE_FTP_PASSWORD }}
-          local-dir: ./apps/web-ele/dist/
+          local-dir: ./apps/admin/dist/
 
   deploy-naive-ftp:
     name: Deploy Push Naive Ftp
