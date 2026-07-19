@@ -13,6 +13,7 @@ import org.dromara.fund.domain.dto.EstimateProviderResponse;
 import org.dromara.fund.domain.vo.FundEstimateVo;
 import org.dromara.fund.mapper.FundEstimateMapper;
 import org.dromara.fund.mapper.FundInfoMapper;
+import org.dromara.fund.service.IFundDataSyncService;
 import org.dromara.fund.service.IFundEstimateService;
 import org.redisson.api.RLock;
 import org.springframework.stereotype.Service;
@@ -36,11 +37,16 @@ public class FundEstimateServiceImpl implements IFundEstimateService {
 
     private final FundEstimateMapper estimateMapper;
     private final FundInfoMapper fundInfoMapper;
+    private final IFundDataSyncService fundDataSyncService;
     private final FundEstimateProviderClient providerClient;
     private final FundEstimateProperties properties;
 
     @Override
     public FundEstimateVo queryEstimate(String fundCode) {
+        // 估值快照依赖 fund_info 外键，直接访问估值接口时也必须先完成基金主数据读穿透。
+        if (fundCode != null && fundCode.matches("^\\d{6}$")) {
+            fundDataSyncService.ensureAvailable(fundCode, 1);
+        }
         String cacheKey = FundCacheConstants.ESTIMATE_KEY_PREFIX + fundCode;
         FundEstimateVo cached = RedisUtils.getCacheObject(cacheKey);
         if (cached != null) {

@@ -21,6 +21,8 @@ public class FundDetailVo implements Serializable {
     private String fundName;
     private String fundType;
     private String managerName;
+    /** 基金托管人名称。 */
+    private String custodianName;
     private LocalDate establishDate;
     private String benchmark;
     private String riskLevel;
@@ -29,4 +31,10 @@ public class FundDetailVo implements Serializable {
     private LocalDate navDate;
     private FundEstimateVo estimate;
     private List<FundNavPointVo> navSeries = List.of();
+    /** 最新公开报告期的股票持仓。 */
+    private List<FundHoldingVo> holdings = List.of();
+    /** 持仓披露或数据可用性说明。 */
+    private String holdingNote;
+    /** 当前展示的直接股票持仓合计比例，百分数口径。 */
+    private BigDecimal holdingCoverageRate;
 }

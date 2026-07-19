@@ -13,4 +13,7 @@ import org.dromara.fund.domain.vo.FundListVo;
 public interface FundInfoMapper extends BaseMapperPlus<FundInfo, FundInfo> {
 
     Page<FundListVo> selectFundPage(@Param("page") Page<FundListVo> page, @Param("bo") FundQueryBo bo);
+
+    /** PostgreSQL 按基金代码幂等写入基础信息。 */
+    int upsert(@Param("item") FundInfo fundInfo);
 }

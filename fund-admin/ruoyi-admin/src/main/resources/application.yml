@@ -146,9 +146,18 @@ tenant:
 
 # 基金实时估值配置
 fund:
+  data:
+    # Python 数据中心基础地址；dev 环境提供本机默认值，生产环境必须显式配置。
+    provider-base-url: ${FUND_DATA_PROVIDER_BASE_URL:}
+    provider-connect-timeout: 2s
+    provider-read-timeout: 90s
+    search-limit: 100
   estimate:
     # 上游估值接口可在不同环境通过环境变量替换，默认关闭远端回源，仅使用数据库与缓存。
     provider-url: ${FUND_ESTIMATE_PROVIDER_URL:}
+    # Python 冷缓存需抓取持仓、净值与行情；连接和读取超时分开配置。
+    provider-connect-timeout: 2s
+    provider-read-timeout: 30s
     cache-ttl: 45s
     stale-after: 3m
     schedule-enabled: true

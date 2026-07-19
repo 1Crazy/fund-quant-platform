@@ -13,5 +13,5 @@ public interface IFundQueryService {
 
     TableDataInfo<FundListVo> queryPage(FundQueryBo bo, PageQuery pageQuery);
 
-    FundDetailVo queryDetail(String fundCode, int days);
+    FundDetailVo queryDetail(String fundCode, String period);
 }

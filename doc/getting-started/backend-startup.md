@@ -19,28 +19,30 @@ ruoyi-admin/src/main/java/org/dromara/DromaraApplication.java
 如果当前在项目根目录 `/Users/hong/Documents/my-project/jj`：
 
 ```bash
-cd fund-admin/ruoyi-admin
-mvn spring-boot:run
+cd fund-admin
+make dev
 ```
 
 如果当前已经在 `fund-admin` 目录：
 
 ```bash
-cd ruoyi-admin
-mvn spring-boot:run
+make dev
 ```
 
-如果当前已经在 `fund-admin/ruoyi-admin` 目录，只有一条命令：
+如果当前已经在 `fund-admin/ruoyi-admin` 目录，同样只有一条命令：
 
 ```bash
-mvn spring-boot:run
+make dev
 ```
+
+两个目录的 `make dev` 都会回到 Maven 聚合工程，先增量安装最新 `ruoyi-fund`，再启动 `ruoyi-admin`。
+不要直接运行 `mvn spring-boot:run`：该命令只构建 `ruoyi-admin`，会直接复用 `~/.m2` 中可能过期的业务模块 Jar。
 
 日常启动不需要重复执行：
 
 - `source "$HOME/.sdkman/bin/sdkman-init.sh"`：仅在当前终端未自动初始化 SDKMAN 时需要。
 - `-Pdev`：项目的 `dev` Profile 已设为默认激活。
-- `-pl ruoyi-admin -am`：首次 `mvn install` 后，直接在 `ruoyi-admin` 模块启动即可。
+- `-pl ruoyi-admin -am`：已封装在 `make dev` 的增量准备阶段，不需要手动输入。
 - `clean package`：这是打包流程，不是日常开发启动流程。
 
 只有当 `java -version` 不是 21 时，才执行：
@@ -74,14 +76,13 @@ mvn install -Pdev -DskipTests
 
 该命令会安装 RuoYi 父工程、公共模块、业务模块及 `ruoyi-admin` 所需依赖。首次执行需要联网下载依赖，耗时取决于 Maven 仓库连接速度。
 
-安装完成后，日常启动仍使用：
+安装完成后，日常启动使用：
 
 ```bash
-cd ruoyi-admin
-mvn spring-boot:run
+make dev
 ```
 
-通常不需要每天重复执行 `mvn install`。
+`make dev` 只会增量编译发生变化的模块；没有源码变化时不会进行完整重建。
 
 如果本地没有启动 SnailJob 或 Spring Boot Admin，使用下面这个本地开发命令：
 
@@ -285,21 +286,27 @@ export DB_PASSWORD='your-password'
 
 ### 基金估值上游
 
-上游服务未配置时，后端仍可启动；但实时估值没有缓存或历史快照时，接口不会产生实时数据。
+上游服务未配置时，后端仍可启动；但本地不存在的基金无法自动同步，实时估值在没有缓存或历史快照时也不会产生数据。
 
-Python FastAPI 服务启动后配置：
+Python FastAPI 服务默认地址为 `http://localhost:8000`，开发配置会自动调用。地址变化时覆盖：
 
 ```bash
+export FUND_DATA_PROVIDER_BASE_URL='http://localhost:8000'
 export FUND_ESTIMATE_PROVIDER_URL='http://localhost:8000/internal/v1/data/estimate/{code}'
 ```
+
+基金列表采用本地库分页查询。首次通过 `/fund/list` 精确查询六位基金代码时，Java 会自动调用 fund-quant 同步基础信息和最新净值，再从 PostgreSQL 返回分页结果；前端无需额外调用同步接口。
+
+基金名称查询会先从 fund-quant 同步名称或拼音缩写匹配的轻量基金目录，再由 PostgreSQL 执行分页；进入详情时才按需同步基金档案、净值和最新公开股票持仓。详情页按近1月、近3月、近6月、近1年、近3年、近5年、成立以来切换，Java 会按自然时间过滤净值序列。
 
 然后启动后端：
 
 ```bash
 cd /Users/hong/Documents/my-project/jj/fund-admin
-source "$HOME/.sdkman/bin/sdkman-init.sh"
-mvn -pl ruoyi-admin -am spring-boot:run -Pdev
+make dev
 ```
+
+`make dev` 会自动使用 SDKMAN 当前的 JDK 与 Maven，从父工程增量安装所有依赖模块后再启动应用。不要在 `ruoyi-admin` 子目录直接执行 `mvn spring-boot:run`：该方式会从 `~/.m2` 读取 `ruoyi-fund`，模块源码刚修改但未重新安装时会运行旧代码。
 
 ### 估值定时任务
 
@@ -395,12 +402,20 @@ mvn -pl ruoyi-admin -am spring-boot:run -Pdev \
 
 ### 5. `/fund/list` 返回空列表
 
-后端启动成功不代表基金数据已经存在。确认已经导入或同步：
+不带基金代码时，列表只展示已经同步到本地业务库的数据；空库返回空列表是正常行为。
 
-- `fund_info` 有基金基础信息。
-- `fund_nav` 有历史净值。
+精确传入六位基金代码时，Java 会自动调用 fund-quant，同步基础信息和最新净值。若仍为空，依次确认：
+
+- fund-quant 已启动且 `http://localhost:8000/health` 正常。
+- `FUND_DATA_PROVIDER_BASE_URL` 未覆盖为错误地址。
 - Redis 正常连接。
-- Python 估值上游已配置（仅实时估值需要）。
+- PostgreSQL 中已创建 `fund_info`、`fund_nav` 表。
+
+```bash
+curl -i \
+  -H 'Authorization: Bearer <access-token>' \
+  'http://localhost:8080/fund/list?fundCode=010990&pageNum=1&pageSize=20'
+```
 
 ## 八、启动成功检查
 

@@ -4,6 +4,39 @@
     "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="org.dromara.fund.mapper.FundInfoMapper">
 
+    <insert id="upsert">
+        INSERT INTO fund_info (
+            id, fund_code, fund_name, fund_type, pinyin_abbr,
+            manager_name, custodian_name, establish_date, benchmark, risk_level, fund_scale,
+            status, source, source_updated_at, create_time, update_time, del_flag
+        ) VALUES (
+            #{item.id}, #{item.fundCode}, #{item.fundName}, #{item.fundType}, #{item.pinyinAbbr},
+            #{item.managerName}, #{item.custodianName}, #{item.establishDate}, #{item.benchmark},
+            #{item.riskLevel}, #{item.fundScale},
+            #{item.status}, #{item.source}, #{item.sourceUpdatedAt},
+            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, #{item.delFlag}
+        )
+        ON CONFLICT (fund_code) DO UPDATE SET
+            fund_name = EXCLUDED.fund_name,
+            fund_type = EXCLUDED.fund_type,
+            pinyin_abbr = EXCLUDED.pinyin_abbr,
+            manager_name = COALESCE(EXCLUDED.manager_name, fund_info.manager_name),
+            custodian_name = COALESCE(EXCLUDED.custodian_name, fund_info.custodian_name),
+            establish_date = COALESCE(EXCLUDED.establish_date, fund_info.establish_date),
+            benchmark = COALESCE(EXCLUDED.benchmark, fund_info.benchmark),
+            risk_level = COALESCE(EXCLUDED.risk_level, fund_info.risk_level),
+            fund_scale = COALESCE(EXCLUDED.fund_scale, fund_info.fund_scale),
+            status = EXCLUDED.status,
+            source = CASE
+                WHEN fund_info.source = 'AKSHARE_XQ' AND EXCLUDED.source = 'AKSHARE_CATALOG'
+                    THEN fund_info.source
+                ELSE EXCLUDED.source
+            END,
+            source_updated_at = EXCLUDED.source_updated_at,
+            update_time = CURRENT_TIMESTAMP,
+            del_flag = 0
+    </insert>
+
     <select id="selectFundPage" resultType="org.dromara.fund.domain.vo.FundListVo">
         SELECT fi.fund_code,
                fi.fund_name,
@@ -42,7 +75,10 @@
             AND fi.fund_code = #{bo.fundCode}
         </if>
         <if test="bo.fundName != null and bo.fundName != ''">
-            AND fi.fund_name LIKE CONCAT('%', #{bo.fundName}, '%')
+            AND (
+                fi.fund_name ILIKE CONCAT('%', #{bo.fundName}, '%')
+                OR fi.pinyin_abbr ILIKE CONCAT('%', #{bo.fundName}, '%')
+            )
         </if>
         <if test="bo.fundType != null and bo.fundType != ''">
             AND fi.fund_type = #{bo.fundType}

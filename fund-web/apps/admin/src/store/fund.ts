@@ -41,10 +41,10 @@ export const useFundStore = defineStore('fund-realtime', () => {
     }
   }
 
-  async function fetchDetail(code: string, days = 120) {
+  async function fetchDetail(code: string, period: FundApi.NavPeriod = '3m') {
     detailLoading.value = true;
     try {
-      detail.value = await getFundDetailApi(code, days);
+      detail.value = await getFundDetailApi(code, period);
       return detail.value;
     } finally {
       detailLoading.value = false;

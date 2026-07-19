@@ -6,18 +6,23 @@ import { Page } from '@vben/common-ui';
 import { ArrowLeft, RotateCw } from '@vben/icons';
 
 import {
+  ElAlert,
   ElButton,
   ElCard,
   ElDescriptions,
   ElDescriptionsItem,
   ElEmpty,
   ElMessage,
+  ElPagination,
   ElSegmented,
   ElSkeleton,
+  ElTable,
+  ElTableColumn,
   ElTag,
 } from 'element-plus';
 import { storeToRefs } from 'pinia';
 
+import type { FundApi } from '#/api/fund';
 import { useFundStore } from '#/store';
 
 import NavChart from '../components/nav-chart.vue';
@@ -26,29 +31,54 @@ const route = useRoute();
 const router = useRouter();
 const fundStore = useFundStore();
 const { detail, detailLoading } = storeToRefs(fundStore);
-const days = ref(120);
-const periodOptions = [
-  { label: '120日', value: 120 },
-  { label: '250日', value: 250 },
-  { label: '全部', value: 0 },
+const period = ref<FundApi.NavPeriod>('3m');
+const periodOptions: Array<{ label: string; value: FundApi.NavPeriod }> = [
+  { label: '近1月', value: '1m' },
+  { label: '近3月', value: '3m' },
+  { label: '近6月', value: '6m' },
+  { label: '近1年', value: '1y' },
+  { label: '近3年', value: '3y' },
+  { label: '近5年', value: '5y' },
+  { label: '成立以来', value: 'all' },
 ];
 const estimateLoading = ref(false);
+const historyPage = ref(1);
+const historyPageSize = ref(20);
 
 const code = computed(() => String(route.query.code ?? '').trim());
 const estimate = computed(() => detail.value?.estimate);
+const estimateSupported = computed(
+  () => detail.value == null || (detail.value.holdingCoverageRate ?? 100) >= 10,
+);
 const growth = computed(() => estimate.value?.estimateGrowthRate);
 const growthClass = computed(() => {
   if (growth.value == null || growth.value === 0) return 'neutral';
   return growth.value > 0 ? 'up' : 'down';
+});
+const historyRows = computed(() => {
+  const rows = [...(detail.value?.navSeries ?? [])].reverse();
+  const start = (historyPage.value - 1) * historyPageSize.value;
+  return rows.slice(start, start + historyPageSize.value);
+});
+const historyTotal = computed(() => detail.value?.navSeries.length ?? 0);
+const navRange = computed(() => {
+  const rows = detail.value?.navSeries ?? [];
+  if (!rows.length) return '--';
+  return `${rows[0]?.date} 至 ${rows.at(-1)?.date}`;
 });
 
 function nav(value?: number) {
   return value == null ? '--' : value.toFixed(4);
 }
 
+function formatGrowth(value?: number) {
+  if (value == null) return '--';
+  return `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
+}
+
 async function load() {
   if (!code.value) return;
-  await fundStore.fetchDetail(code.value, days.value);
+  await fundStore.fetchDetail(code.value, period.value);
 }
 
 async function refreshEstimate() {
@@ -63,7 +93,10 @@ async function refreshEstimate() {
 }
 
 onMounted(load);
-watch(days, load);
+watch(period, () => {
+  historyPage.value = 1;
+  void load();
+});
 watch(code, load);
 </script>
 
@@ -74,7 +107,12 @@ watch(code, load);
         <ElButton text @click="router.push('/fund/list')">
           <ArrowLeft class="mr-1 size-4" />返回基金列表
         </ElButton>
-        <ElButton :loading="estimateLoading" type="primary" @click="refreshEstimate">
+        <ElButton
+          :disabled="!estimateSupported"
+          :loading="estimateLoading"
+          type="primary"
+          @click="refreshEstimate"
+        >
           <RotateCw class="mr-1 size-4" />刷新估值
         </ElButton>
       </div>
@@ -98,7 +136,9 @@ watch(code, load);
             <div class="valuation-growth" :class="growthClass">
               {{ growth == null ? '--' : `${growth > 0 ? '+' : ''}${growth.toFixed(2)}%` }}
             </div>
-            <div class="valuation-time">{{ estimate?.estimateTime || '暂无盘中估值' }}</div>
+            <div class="valuation-time">
+              {{ estimateSupported ? (estimate?.estimateTime || '暂无盘中估值') : '直接股票覆盖不足，暂不估值' }}
+            </div>
           </div>
         </section>
 
@@ -108,10 +148,12 @@ watch(code, load);
               <div class="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div class="panel-title">净值走势</div>
-                  <div class="panel-subtitle">单位净值与累计净值</div>
+                  <div class="panel-subtitle">
+                    {{ navRange }} · {{ detail.navSeries.length }} 个净值日
+                  </div>
                 </div>
                 <ElSegmented
-                  v-model="days"
+                  v-model="period"
                   :options="periodOptions"
                 />
               </div>
@@ -130,6 +172,7 @@ watch(code, load);
               <template #header><span class="panel-title">基金档案</span></template>
               <ElDescriptions :column="1" border>
                 <ElDescriptionsItem label="基金经理">{{ detail.managerName || '--' }}</ElDescriptionsItem>
+                <ElDescriptionsItem label="基金托管人">{{ detail.custodianName || '--' }}</ElDescriptionsItem>
                 <ElDescriptionsItem label="成立日期">{{ detail.establishDate || '--' }}</ElDescriptionsItem>
                 <ElDescriptionsItem label="基金规模">{{ detail.fundScale == null ? '--' : `${detail.fundScale.toFixed(2)} 亿元` }}</ElDescriptionsItem>
                 <ElDescriptionsItem label="业绩基准">{{ detail.benchmark || '--' }}</ElDescriptionsItem>
@@ -137,6 +180,78 @@ watch(code, load);
             </ElCard>
           </div>
         </div>
+
+        <ElCard class="mt-4" shadow="never">
+          <template #header>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div class="panel-title">最新股票持仓</div>
+                <div class="panel-subtitle">
+                  {{ detail.holdings[0]?.reportPeriod || '最近公开报告期' }} · 权重为占基金净值比例
+                </div>
+              </div>
+              <ElTag v-if="detail.holdings.length" effect="plain">
+                共 {{ detail.holdings.length }} 只 · 直接股票合计
+                {{ (detail.holdingCoverageRate ?? 0).toFixed(2) }}%
+              </ElTag>
+            </div>
+          </template>
+          <ElTable v-if="detail.holdings.length" :data="detail.holdings" stripe>
+            <ElTableColumn label="股票代码" min-width="120" prop="stockCode" />
+            <ElTableColumn label="股票名称" min-width="150" prop="stockName" />
+            <ElTableColumn align="right" label="持仓占比" min-width="130">
+              <template #default="{ row }">{{ row.weight.toFixed(2) }}%</template>
+            </ElTableColumn>
+            <ElTableColumn label="报告期" min-width="150" prop="reportPeriod" />
+          </ElTable>
+          <ElEmpty v-else description="最新报告期暂无直接股票持仓" />
+          <ElAlert
+            v-if="detail.holdingNote"
+            class="mt-3"
+            :closable="false"
+            :title="detail.holdingNote"
+            type="info"
+            show-icon
+          />
+        </ElCard>
+
+        <ElCard class="mt-4" shadow="never">
+          <template #header>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div class="panel-title">历史净值明细</div>
+                <div class="panel-subtitle">当前周期共 {{ historyTotal }} 个净值日，按日期倒序展示</div>
+              </div>
+            </div>
+          </template>
+          <ElTable v-if="historyRows.length" :data="historyRows" stripe>
+            <ElTableColumn label="净值日期" min-width="130" prop="date" />
+            <ElTableColumn align="right" label="单位净值" min-width="130">
+              <template #default="{ row }">{{ nav(row.unitNav) }}</template>
+            </ElTableColumn>
+            <ElTableColumn align="right" label="累计净值" min-width="130">
+              <template #default="{ row }">{{ nav(row.accumulatedNav) }}</template>
+            </ElTableColumn>
+            <ElTableColumn align="right" label="日增长率" min-width="130">
+              <template #default="{ row }">
+                <span :class="row.dailyGrowthRate > 0 ? 'growth-up' : row.dailyGrowthRate < 0 ? 'growth-down' : ''">
+                  {{ formatGrowth(row.dailyGrowthRate) }}
+                </span>
+              </template>
+            </ElTableColumn>
+          </ElTable>
+          <ElEmpty v-else description="暂无历史净值数据" />
+          <div v-if="historyTotal" class="mt-4 flex justify-end">
+            <ElPagination
+              v-model:current-page="historyPage"
+              v-model:page-size="historyPageSize"
+              :page-sizes="[10, 20, 50, 100]"
+              :total="historyTotal"
+              background
+              layout="total, sizes, prev, pager, next, jumper"
+            />
+          </div>
+        </ElCard>
 
         <div class="risk-note">量化估值仅供辅助决策，不构成投资建议。盘中估值可能与基金公司最终公布净值存在差异。</div>
       </template>
@@ -211,6 +326,8 @@ watch(code, load);
 .valuation-growth.up { color: #e11d48; }
 .valuation-growth.down { color: #059669; }
 .valuation-growth.neutral { color: #64748b; }
+.growth-up { color: #e11d48; font-weight: 600; }
+.growth-down { color: #059669; font-weight: 600; }
 
 .panel-title {
   font-size: 15px;

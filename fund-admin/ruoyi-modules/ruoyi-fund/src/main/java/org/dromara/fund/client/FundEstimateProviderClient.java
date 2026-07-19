@@ -27,8 +27,8 @@ public class FundEstimateProviderClient {
             throw new ServiceException("基金估值上游接口未配置");
         }
         RestTemplate restTemplate = restTemplateBuilder
-            .connectTimeout(java.time.Duration.ofSeconds(1))
-            .readTimeout(java.time.Duration.ofSeconds(3))
+            .connectTimeout(properties.getProviderConnectTimeout())
+            .readTimeout(properties.getProviderReadTimeout())
             .build();
         try {
             EstimateProviderEnvelope envelope = properties.getProviderUrl().contains("{code}")

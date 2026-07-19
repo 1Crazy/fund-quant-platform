@@ -7,12 +7,17 @@ import type { FundApi } from './model';
  * RuoYi 的分页结构使用 rows/total，API 层统一转换为前端表格结构，避免页面感知后端框架细节。
  */
 export async function getFundListApi(params: FundApi.FundListParams) {
+  const exactCode = /^\d{6}$/.test(params.fundCode?.trim() ?? '');
+  const remoteSearch = Boolean(params.fundName?.trim());
+  const requestOptions = {
+    params,
+    responseReturn: 'body' as const,
+    ...(exactCode || remoteSearch ? { timeout: 120_000 } : {}),
+  };
   const response = await requestClient.get<FundApi.RuoYiPage<FundApi.FundListItem>>(
     '/fund/list',
-    {
-      params,
-      responseReturn: 'body',
-    },
+    // 精确代码或名称搜索会由 Java 同步 AkShare 冷数据，普通分页仍沿用全局 10 秒超时。
+    requestOptions,
   );
   return {
     items: (response.rows ?? []).map(normalizeListItem),
@@ -21,16 +26,19 @@ export async function getFundListApi(params: FundApi.FundListParams) {
 }
 
 /** 查询基金详情及净值序列。 */
-export function getFundDetailApi(code: string, days = 120) {
+export function getFundDetailApi(code: string, period: FundApi.NavPeriod = '3m') {
   return requestClient
-    .get<FundApi.FundDetail>(`/fund/detail/${code}`, { params: { days } })
+    .get<FundApi.FundDetail>(`/fund/detail/${code}`, {
+      params: { period },
+      timeout: 120_000,
+    })
     .then(normalizeDetail);
 }
 
 /** 查询最新实时估值。 */
 export function getFundEstimateApi(code: string) {
   return requestClient
-    .get<FundApi.FundEstimate>(`/fund/estimate/${code}`)
+    .get<FundApi.FundEstimate>(`/fund/estimate/${code}`, { timeout: 120_000 })
     .then(normalizeEstimate);
 }
 
@@ -64,6 +72,11 @@ function normalizeDetail(value: FundApi.FundDetail): FundApi.FundDetail {
     ...value,
     estimate: value.estimate ? normalizeEstimate(value.estimate) : undefined,
     fundScale: optionalNumber(value.fundScale),
+    holdingCoverageRate: optionalNumber(value.holdingCoverageRate),
+    holdings: (value.holdings ?? []).map((holding) => ({
+      ...holding,
+      weight: Number(holding.weight),
+    })),
     latestNav: optionalNumber(value.latestNav),
     navSeries: (value.navSeries ?? []).map((point) => ({
       ...point,

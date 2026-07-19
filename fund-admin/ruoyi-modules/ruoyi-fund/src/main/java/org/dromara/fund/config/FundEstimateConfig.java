@@ -8,7 +8,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * 基金估值模块配置入口。
  */
 @AutoConfiguration
-@EnableConfigurationProperties(FundEstimateProperties.class)
+@EnableConfigurationProperties({FundEstimateProperties.class, FundDataProperties.class})
 @EnableScheduling
 public class FundEstimateConfig {
 }

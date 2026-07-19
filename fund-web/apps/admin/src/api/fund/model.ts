@@ -41,6 +41,15 @@ export namespace FundApi {
     unitNav: number;
   }
 
+  export interface FundHolding {
+    reportPeriod: string;
+    stockCode: string;
+    stockName: string;
+    weight: number;
+  }
+
+  export type NavPeriod = '1m' | '1y' | '3m' | '3y' | '5y' | '6m' | 'all';
+
   export interface FundDetail {
     benchmark?: string;
     establishDate?: string;
@@ -48,12 +57,16 @@ export namespace FundApi {
     fundCode: string;
     fundName: string;
     fundScale?: number;
+    holdingCoverageRate?: number;
     fundType: string;
+    holdingNote?: string;
+    holdings: FundHolding[];
     latestNav?: number;
     managerName?: string;
     navDate?: string;
     navSeries: FundNavPoint[];
     riskLevel?: string;
+    custodianName?: string;
   }
 
   export interface PageResult<T> {

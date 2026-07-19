@@ -69,9 +69,11 @@ Redis
 #### 基金列表
 
 1. Vben 请求 `GET /fund/list?pageNum=1&pageSize=20&fundName=&fundType=`。
-2. Spring 从 `fund_info` 分页查询，并批量读取每只基金最新净值与 Redis 最新估值。
-3. 返回 RuoYi `TableDataInfo`：`{ code, msg, rows, total }`。
-4. 前端 VXE Grid 将 `rows -> items` 适配到现有表格协议，禁止逐行再次请求形成 N+1。
+2. 当 `fundCode` 是完整六位代码且本地不存在时，Spring 调用 fund-quant 同步基金基础信息和最新净值；详情页再按近1月、近3月、近6月、近1年、近3年、近5年或成立以来补齐净值。
+   当 `fundName` 非空时，Spring 仅同步名称或拼音缩写匹配的轻量基金目录，详情档案和净值仍按代码懒加载。
+3. Spring 从 `fund_info` 分页查询，并批量读取每只基金最新净值与 Redis 最新估值。
+4. 返回 RuoYi `TableDataInfo`：`{ code, msg, rows, total }`。
+5. 前端 VXE Grid 将 `rows -> items` 适配到现有表格协议，禁止逐行再次请求形成 N+1。
 
 #### 实时估值
 
@@ -393,7 +395,7 @@ fund-web/apps/admin/src/
 | 页面 | 主体 | 关键交互 | 空/错状态 |
 |---|---|---|---|
 | `/fund/list` | VXE Grid：代码、名称、类型、最新净值、估值、涨跌幅、更新时间 | 搜索、类型筛选、分页、点击进入详情 | 无数据、估值过期标签、单行估值失败不影响列表 |
-| `/fund/detail` | 基金摘要、实时估值、净值折线 | code 路由查询、120/250/全部周期切换、手动刷新估值 | code 不存在跳回列表；曲线不足提示 |
+| `/fund/detail` | 基金摘要、实时估值、净值折线、最新股票持仓 | code 路由查询、近1月/3月/6月/1年/3年/5年/成立以来切换、手动刷新估值 | code 不存在跳回列表；曲线或持仓不足时展示真实空态 |
 | `/fund/trend` | 基金选择器、趋势分、MA/RSI/MACD、回撤/波动率 | 切换基金；图表展示 MA5/10/20/60/120 | 样本不足时不画误导性指标 |
 | `/fund/signal` | BUY/SELL/HOLD、分数、结构化原因、指标证据 | 切换基金、跳转趋势页 | 信号过期与算法版本可见 |
 | `/market/temperature` | 0~100 仪表盘、等级、5 个分项、历史折线 | 刷新、查看来源时间 | 任一核心指标过期时展示数据质量告警 |
@@ -565,7 +567,7 @@ fund-quant/
 
 ### 6.3 `GET /fund/detail/{code}`
 
-可选参数 `days=120|250|0`，0 表示全部；默认 120。
+可选参数 `period=1m|3m|6m|1y|3y|5y|all`，默认 `3m`；按自然时间过滤，`all` 表示成立以来。
 
 ```json
 {

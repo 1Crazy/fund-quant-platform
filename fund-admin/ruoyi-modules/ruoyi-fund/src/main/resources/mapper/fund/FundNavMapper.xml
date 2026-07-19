@@ -4,6 +4,35 @@
     "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="org.dromara.fund.mapper.FundNavMapper">
 
+    <insert id="upsertBatch">
+        INSERT INTO fund_nav (
+            id, fund_code, nav_date, unit_nav, accumulated_nav, daily_growth_rate,
+            source, create_time, update_time
+        ) VALUES
+        <foreach collection="items" item="item" separator=",">
+            (
+                #{item.id}, #{item.fundCode}, #{item.navDate}, #{item.unitNav}, #{item.accumulatedNav},
+                #{item.dailyGrowthRate}, #{item.source}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+        </foreach>
+        ON CONFLICT (fund_code, nav_date) DO UPDATE SET
+            unit_nav = EXCLUDED.unit_nav,
+            accumulated_nav = EXCLUDED.accumulated_nav,
+            daily_growth_rate = EXCLUDED.daily_growth_rate,
+            source = CASE
+                WHEN fund_nav.source = 'AKSHARE_ALL' OR EXCLUDED.source = 'AKSHARE_ALL'
+                    THEN 'AKSHARE_ALL'
+                WHEN fund_nav.source LIKE 'AKSHARE_DAYS_%'
+                    AND EXCLUDED.source LIKE 'AKSHARE_DAYS_%'
+                    THEN 'AKSHARE_DAYS_' || GREATEST(
+                        CAST(SUBSTRING(fund_nav.source FROM 14) AS INTEGER),
+                        CAST(SUBSTRING(EXCLUDED.source FROM 14) AS INTEGER)
+                    )
+                ELSE EXCLUDED.source
+            END,
+            update_time = CURRENT_TIMESTAMP
+    </insert>
+
     <select id="selectLatest" resultType="org.dromara.fund.domain.vo.FundNavPointVo">
         SELECT nav_date AS date,
                unit_nav,
@@ -15,20 +44,29 @@
         LIMIT 1
     </select>
 
+    <select id="selectSyncCoverage" resultType="int">
+        SELECT COALESCE(MAX(
+            CASE
+                WHEN source = 'AKSHARE_ALL' THEN 5000
+                WHEN source LIKE 'AKSHARE_DAYS_%'
+                    THEN CAST(SUBSTRING(source FROM 14) AS INTEGER)
+                ELSE 0
+            END
+        ), 0)
+        FROM fund_nav
+        WHERE fund_code = #{fundCode}
+    </select>
+
     <select id="selectSeries" resultType="org.dromara.fund.domain.vo.FundNavPointVo">
         SELECT nav_date AS date,
                unit_nav,
                accumulated_nav,
                daily_growth_rate
-        FROM (
-            SELECT nav_date, unit_nav, accumulated_nav, daily_growth_rate
-            FROM fund_nav
-            WHERE fund_code = #{fundCode}
-            ORDER BY nav_date DESC
-            <if test="days > 0">
-                LIMIT #{days}
-            </if>
-        ) recent
+        FROM fund_nav
+        WHERE fund_code = #{fundCode}
+        <if test="startDate != null">
+            AND nav_date &gt;= #{startDate}
+        </if>
         ORDER BY nav_date
     </select>
 </mapper>

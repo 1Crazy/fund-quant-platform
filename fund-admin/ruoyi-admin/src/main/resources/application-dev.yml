@@ -20,6 +20,13 @@ captcha:
 api-decrypt:
   enabled: false
 
+# 开发环境默认调用本机 fund-quant；如端口或部署地址不同可用环境变量覆盖。
+fund:
+  data:
+    provider-base-url: ${FUND_DATA_PROVIDER_BASE_URL:http://localhost:8000}
+  estimate:
+    provider-url: ${FUND_ESTIMATE_PROVIDER_URL:http://localhost:8000/internal/v1/data/estimate/{code}}
+
 --- # snail-job 配置
 snail-job:
   enabled: true

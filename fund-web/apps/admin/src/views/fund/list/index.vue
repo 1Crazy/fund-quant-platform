@@ -47,6 +47,7 @@ function openDetail(row: FundApi.FundListItem) {
 }
 
 async function search() {
+  fundStore.query.fundCode = fundStore.query.fundCode?.trim() ?? '';
   await fundStore.fetchList(true);
 }
 
@@ -104,7 +105,7 @@ onMounted(() => fundStore.fetchList());
             <ElOption label="QDII" value="QDII" />
           </ElSelect>
           <div class="flex gap-2">
-            <ElButton type="primary" @click="search">
+            <ElButton :loading="listLoading" type="primary" @click="search">
               <Search class="mr-1 size-4" />查询
             </ElButton>
             <ElButton @click="reset">

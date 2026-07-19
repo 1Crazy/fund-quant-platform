@@ -1,8 +1,6 @@
 package org.dromara.fund.controller;
 
 import cn.dev33.satoken.annotation.SaCheckPermission;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.dromara.common.core.domain.R;
@@ -44,9 +42,11 @@ public class FundController {
     public R<FundDetailVo> detail(
         @Pattern(regexp = "^[0-9A-Za-z]{1,12}$", message = "基金代码格式不正确")
         @PathVariable String code,
-        @RequestParam(defaultValue = "120") @Min(0) @Max(5000) int days
+        @RequestParam(defaultValue = "3m")
+        @Pattern(regexp = "^(1m|3m|6m|1y|3y|5y|all)$", message = "净值周期格式不正确")
+        String period
     ) {
-        return R.ok(fundQueryService.queryDetail(code, days));
+        return R.ok(fundQueryService.queryDetail(code, period));
     }
 
     @SaCheckPermission("fund:info:query")
