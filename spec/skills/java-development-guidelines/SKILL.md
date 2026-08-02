@@ -1,32 +1,54 @@
 ---
 name: java-development-guidelines
-description: "本项目 Java 开发规范、Spring Boot/MyBatis/PostgreSQL 排错与接口联调经验。用于新增或修改 fund-admin Java 功能，或诊断接口 500、数据库迁移、租户过滤、Mapper SQL、Python 供应方调用失败。"
+description: "Java 后端工程行为与实现规范。用于新增、修改或评审 Spring Boot、REST API、Java、MyBatis 代码，约束需求分析、修改范围、分层、BO/VO、Service、SQL、事务、幂等、并发、测试和代码评审；按任务加载专题规则。"
 ---
 
-# Java 开发规范
+# Java 后端开发规范
 
-面向 `fund-admin` 的 Spring Boot、MyBatis、PostgreSQL 与 fund-quant 联调。遵循现有 RuoYi-Vue-Plus 模式，不引入新的迁移或 ORM 框架。
+以最小、可维护、符合既有架构的改动交付需求。不要为了快速实现、理论完整或未来假设破坏当前模块的边界。
 
-## 开发约定
+## 规则优先级
 
-- 新增跨租户公共基金数据表时，同时将表名加入 `fund-admin/ruoyi-admin/src/main/resources/application.yml` 的 `tenant.excludes`。
-- 数据库结构变更写入 `fund-admin/script/sql/update/postgres/` 的正向迁移 SQL；本项目不自动执行 Flyway/Liquibase 迁移。
-- 修改 Mapper XML 后，确认运行时使用的资源不是旧的 `target/classes` 或 `~/.m2` JAR；重新构建并重启 Java 服务后再判断结果。
-- PostgreSQL 参数必须有明确类型上下文。避免 `CONCAT(#{value}, ...)` 这类可能让 JDBC 参数推断失败的写法；优先使用 `#{value}::varchar || '...'`。
-- 本机 Java 调 Python 服务时，默认使用 `127.0.0.1` 而不是 `localhost`，避免 Python 仅监听 IPv4 时的 IPv6 解析差异。
+1. 用户本次明确要求，以及仓库/模块的 `AGENTS.md`
+2. 当前模块的既有结构、公共组件和命名惯例
+3. 本 Skill 及其相关专题文件
+4. 官方框架规范
+5. 个人习惯
 
-## 接口 500 排查顺序
+本 Skill 只约束新增或修改的代码。发现与当前需求无关的历史问题，记录而不顺手重构。
 
-1. 读取 `fund-admin/ruoyi-admin/logs/sys-error.log` 中与请求时间匹配的首个 `Caused by`，不要以接口通用文案作为根因。
-2. 对数据库错误，先核对报错列/表是否已由对应 PostgreSQL 迁移创建，再检查租户插件是否额外注入了 `tenant_id` 条件。
-3. 对 Mapper 错误，记录最终 SQL、参数位置与运行时 XML 来源；若来源为 `~/.m2/...jar`，先排除构建产物陈旧。
-4. 对 Java 调用 fund-quant 的错误，直接请求对应 Python 内部端点，区分连接失败、超时、非 2xx 和结构化业务错误。
-5. Python 端点成功但 Java 失败时，检查 Java 的供应方基础地址、连接/读取超时、JSON DTO 字段和当前运行资源版本。
+## 规则类型与冲突处理
 
-## 本项目已验证经验
+- 安全、权限隔离、数据一致性、敏感信息保护和已发布接口兼容性是必须满足的结果；优先复用模块既有的等效实现，不以本 Skill 为由另起一套机制。
+- 命名、模型后缀、分页实现、方法行数和具体技术形式属于默认约定。模块已有不同但等效的稳定模式时，保持该模式并在交付说明中说明原因。
+- 不得借“沿用历史”规避安全、权限、数据或兼容性风险；无法判断现有实现是否满足上述结果时，先查代码与配置，再决定是否需要追问。
 
-- `fund_info` 与 `fund_nav` 新增版本/质量字段后，必须执行 `update_fund_data_center_v1.sql`；仅重启服务不会更新 PostgreSQL 结构。
-- `fund_sync_run`、`fund_data_quality_issue` 与基金行情数据一样是跨租户公共数据；遗漏租户排除会触发 `column ... tenant_id does not exist`。
-- 查询质量问题的前缀匹配应写成 `record_key LIKE (#{fundCode}::varchar || ':%')`，避免 PostgreSQL 报 `could not determine data type of parameter`。
-- `/internal/v1/data/sync/fund/{code}`、`/sync/nav/{code}`、`/sync/holdings/{code}` 是 Java 手动同步的逐段诊断入口；它们只读取公开数据源，不能替代 Java 侧持久化验证。
-- `RedisUtils.rateLimiter` 的最后一个参数会传给 Redisson 作为限流器键保留时间，并非获取许可等待时间；它必须不小于 `rateInterval`，否则会报 `keepAliveTime should be greater than or equal to rateInterval`。
+## 执行顺序
+
+1. **任何修改 Java 代码、Mapper XML/SQL、新增接口或进行 Java 代码评审的任务，都必须先阅读 [behavior.md](behavior.md)，不得跳过。**
+2. 从当前修改点开始，按 [behavior.md](behavior.md) 的范围控制读取相关 Controller、Service、Entity、Mapper/Repository、模型、直接调用方、相邻实现和已有测试；不存在或与任务无关的层不强制读取。
+3. 根据工作内容在编辑前加载下列所有相关专题，不加载无关文件：
+
+| 工作内容 | 必读专题 |
+| --- | --- |
+| 接口、分层、BO/VO、校验、权限、事务、异常、转换 | [architecture.md](architecture.md) |
+| 新增或修改 HTTP 接口、前后端契约或接口兼容性 | [api.md](api.md) |
+| Service 用例、集合、外部调用、复杂度或性能 | [service.md](service.md) |
+| 导入、同步、审批、批量操作、定时任务、并发写入或关键日志 | [reliability.md](reliability.md) |
+| MyBatis、Mapper XML、查询、分页、索引或数据库迁移 | [mybatis.md](mybatis.md) |
+| Excel 导入、导出或大批量文件数据处理 | [excel.md](excel.md) |
+| 文件上传、文件存储或文件路径处理 | [files.md](files.md) |
+| 配置文件、环境参数、密钥或 Maven 依赖 | [platform.md](platform.md) |
+| 使用代码生成器生成或更新 Java 业务代码 | [generation.md](generation.md) |
+| 新增/修改测试，或评估测试覆盖 | [testing.md](testing.md) |
+| 代码审查、PR 审查或上线前风险检查 | [review.md](review.md) |
+| 使用 RuoYi-Vue-Plus，且相邻模块已采用其 BO/VO、响应或分页约定 | [references/ruoyi-vue-plus.md](references/ruoyi-vue-plus.md) |
+| 修改 `fund-admin/` 或联调 `fund-quant` | [references/fund-admin.md](references/fund-admin.md) |
+| 完成 Java 或 Mapper XML 改动后进行规则静态扫描 | [enforcement.md](enforcement.md) |
+
+## 基本要求
+
+- 先复用已有能力，再做简单扩展，最后才新增抽象或依赖。
+- 修改前确定输入、输出、状态变化、权限、事务、异常和数据影响；复杂需求先给出简短设计，再编码。
+- 完成 Java 或 Mapper XML 改动后，运行 [enforcement.md](enforcement.md) 中适用的静态扫描；修复错误级结果，并人工判断告警。
+- 输出时说明设计取舍、修改文件、对既有模块或数据的影响，以及实际执行或未执行的验证。
