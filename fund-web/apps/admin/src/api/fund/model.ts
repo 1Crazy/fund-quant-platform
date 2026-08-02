@@ -43,14 +43,26 @@ export namespace FundApi {
   }
 
   export interface FundEstimate {
+    contributions?: FundEstimateContribution[];
     estimateGrowthRate?: number;
     estimateNav?: number;
     estimateTime?: string;
     fundCode: string;
+    holdingCoverageRate?: number;
     isStale: boolean;
     previousNav?: number;
     previousNavDate?: string;
+    reportPeriod?: string;
     source?: string;
+  }
+
+  export interface FundEstimateContribution {
+    changePercent: number;
+    contribution: number;
+    quoteTime?: string;
+    stockCode: string;
+    stockName: string;
+    weight: number;
   }
 
   export interface FundListItem {
@@ -97,6 +109,14 @@ export namespace FundApi {
     source?: string;
     sourceTime?: string;
     sourceUpdatedAt?: string;
+    stockCode: string;
+    stockName: string;
+    weight: number;
+  }
+
+  export interface FundHoldingQuote {
+    changePercent?: number;
+    quoteTime?: string;
     stockCode: string;
     stockName: string;
     weight: number;

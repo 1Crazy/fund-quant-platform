@@ -10,6 +10,17 @@ class HoldingContribution(ApiModel):
     weight: Decimal
     changePercent: Decimal
     contribution: Decimal
+    quoteTime: datetime
+
+
+class HoldingRealtimeQuote(ApiModel):
+    """最新公开持仓对应的实时行情；不代表基金完整资产配置。"""
+
+    stockCode: str
+    stockName: str
+    weight: Decimal
+    changePercent: Decimal | None = None
+    quoteTime: datetime | None = None
 
 
 class EstimateData(ApiModel):
@@ -31,4 +42,3 @@ class HealthData(ApiModel):
     status: str
     redis: str
     service: str = "fund-quant"
-

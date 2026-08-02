@@ -9,7 +9,9 @@ import org.dromara.fund.config.FundEstimateProperties;
 import org.dromara.fund.constant.FundCacheConstants;
 import org.dromara.fund.domain.FundEstimate;
 import org.dromara.fund.domain.FundInfo;
+import org.dromara.fund.domain.dto.EstimateHoldingContributionResponse;
 import org.dromara.fund.domain.dto.EstimateProviderResponse;
+import org.dromara.fund.domain.vo.FundEstimateContributionVo;
 import org.dromara.fund.domain.vo.FundEstimateVo;
 import org.dromara.fund.mapper.FundEstimateMapper;
 import org.dromara.fund.mapper.FundInfoMapper;
@@ -68,6 +70,8 @@ public class FundEstimateServiceImpl implements IFundEstimateService {
             FundEstimateVo fresh = fromProvider(providerClient.fetch(fundCode));
             validate(fundCode, fresh);
             RedisUtils.setCacheObject(cacheKey, fresh, properties.getCacheTtl());
+            // 详情缓存内嵌盘中估值；不清除会使用户刷新估值后重新打开页面仍读到旧空值或旧快照。
+            RedisUtils.deleteKeys(FundCacheConstants.INFO_KEY_PREFIX + fundCode + ":detail:*");
             try {
                 persistSnapshot(fresh);
             } catch (RuntimeException e) {
@@ -160,7 +164,25 @@ public class FundEstimateServiceImpl implements IFundEstimateService {
         vo.setPreviousNavDate(response.getPreviousNavDate());
         vo.setEstimateTime(response.getEstimateTime() == null ? null : response.getEstimateTime().toLocalDateTime());
         vo.setSource(response.getSource());
+        vo.setHoldingCoverageRate(response.getHoldingCoverageRate());
+        vo.setReportPeriod(response.getReportPeriod());
+        List<EstimateHoldingContributionResponse> contributions = response.getContributions() == null
+            ? List.of() : response.getContributions();
+        vo.setContributions(contributions.stream()
+            .map(this::toContribution)
+            .toList());
         vo.setSourceStatus("NORMAL");
+        return vo;
+    }
+
+    private FundEstimateContributionVo toContribution(EstimateHoldingContributionResponse response) {
+        FundEstimateContributionVo vo = new FundEstimateContributionVo();
+        vo.setStockCode(response.getStockCode());
+        vo.setStockName(response.getStockName());
+        vo.setWeight(response.getWeight());
+        vo.setChangePercent(response.getChangePercent());
+        vo.setContribution(response.getContribution());
+        vo.setQuoteTime(response.getQuoteTime() == null ? null : response.getQuoteTime().toLocalDateTime());
         return vo;
     }
 

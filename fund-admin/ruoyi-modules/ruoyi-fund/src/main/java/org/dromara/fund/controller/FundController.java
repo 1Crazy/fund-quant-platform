@@ -15,6 +15,7 @@ import org.dromara.fund.domain.vo.FundDataQualityIssueVo;
 import org.dromara.fund.domain.vo.FundDetailVo;
 import org.dromara.fund.domain.vo.FundEstimateVo;
 import org.dromara.fund.domain.vo.FundHoldingVo;
+import org.dromara.fund.domain.vo.FundHoldingQuoteVo;
 import org.dromara.fund.domain.vo.FundListVo;
 import org.dromara.fund.domain.vo.FundSyncRunVo;
 import org.dromara.fund.service.IFundDataSyncService;
@@ -80,6 +81,15 @@ public class FundController {
         @RequestParam(required = false) LocalDate reportDate
     ) {
         return R.ok(fundDataSyncService.queryLatestHoldings(code, reportDate));
+    }
+
+    @SaCheckPermission("fund:info:query")
+    @GetMapping("/holding-quotes/{code}")
+    public R<List<FundHoldingQuoteVo>> holdingQuotes(
+        @Pattern(regexp = "^[0-9]{6}$", message = "基金代码格式不正确")
+        @PathVariable String code
+    ) {
+        return R.ok(fundQueryService.queryHoldingQuotes(code));
     }
 
     @SaCheckPermission("fund:sync:list")

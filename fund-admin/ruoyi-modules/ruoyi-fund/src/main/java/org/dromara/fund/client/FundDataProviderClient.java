@@ -5,6 +5,7 @@ import org.dromara.common.core.exception.ServiceException;
 import org.dromara.fund.config.FundDataProperties;
 import org.dromara.fund.domain.dto.FundNavProviderResponse;
 import org.dromara.fund.domain.dto.FundHoldingProviderResponse;
+import org.dromara.fund.domain.dto.HoldingQuoteProviderResponse;
 import org.dromara.fund.domain.dto.FundProviderResponse;
 import org.dromara.fund.domain.dto.QuantProviderEnvelope;
 import org.springframework.boot.web.client.RestTemplateBuilder;
@@ -59,6 +60,16 @@ public class FundDataProviderClient {
             }
         );
         return requireData(response.getBody(), "基金股票持仓");
+    }
+
+    public List<HoldingQuoteProviderResponse> fetchHoldingQuotes(String fundCode) {
+        URI uri = URI.create(baseUrl() + "/internal/v1/data/holding-quotes/" + fundCode);
+        ResponseEntity<QuantProviderEnvelope<List<HoldingQuoteProviderResponse>>> response = exchange(
+            uri,
+            new ParameterizedTypeReference<>() {
+            }
+        );
+        return requireData(response.getBody(), "基金持仓实时行情");
     }
 
     public List<FundProviderResponse> searchFunds(String keyword, int limit) {

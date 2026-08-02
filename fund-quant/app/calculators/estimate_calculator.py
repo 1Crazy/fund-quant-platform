@@ -1,5 +1,5 @@
 from datetime import datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
 from app.core.exceptions import DataNotFoundError
@@ -48,6 +48,7 @@ class EstimateCalculator:
                     contribution=contribution.quantize(
                         FOUR_DECIMALS, rounding=ROUND_HALF_UP
                     ),
+                    quoteTime=quote.update_time,
                 )
             )
 
@@ -56,9 +57,8 @@ class EstimateCalculator:
         if holding_coverage < MINIMUM_HOLDING_COVERAGE:
             raise DataNotFoundError(
                 f"基金 {fund_code} 的直接股票持仓覆盖率仅 {holding_coverage}%，"
-                "可能主要持有目标 ETF，暂不生成误导性盘中估值"
+                "公开数据未提供目标 ETF 标识，不能据此生成盘中估值"
             )
-
         estimate_nav = latest_nav.nav * (Decimal("1") + total_change_percent / ONE_HUNDRED)
         return EstimateData(
             fundCode=fund_code,

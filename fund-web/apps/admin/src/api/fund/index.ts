@@ -14,7 +14,9 @@ export async function getFundListApi(params: FundApi.FundListParams) {
     responseReturn: 'body' as const,
     ...(exactCode || remoteSearch ? { timeout: 120_000 } : {}),
   };
-  const response = await requestClient.get<FundApi.RuoYiPage<FundApi.FundListItem>>(
+  const response = await requestClient.get<
+    FundApi.RuoYiPage<FundApi.FundListItem>
+  >(
     '/fund/list',
     // 精确代码或名称搜索会由 Java 同步 AkShare 冷数据，普通分页仍沿用全局 10 秒超时。
     requestOptions,
@@ -26,7 +28,10 @@ export async function getFundListApi(params: FundApi.FundListParams) {
 }
 
 /** 查询基金详情及净值序列。 */
-export function getFundDetailApi(code: string, period: FundApi.NavPeriod = '3m') {
+export function getFundDetailApi(
+  code: string,
+  period: FundApi.NavPeriod = '3m',
+) {
   return requestClient
     .get<FundApi.FundDetail>(`/fund/detail/${code}`, {
       params: { period },
@@ -42,15 +47,29 @@ export function getFundEstimateApi(code: string) {
     .then(normalizeEstimate);
 }
 
+/** 手动刷新时读取已披露持仓的实时行情，不将低覆盖持仓伪装成基金估值。 */
+export function getFundHoldingQuotesApi(code: string) {
+  return requestClient
+    .get<FundApi.FundHoldingQuote[]>(`/fund/holding-quotes/${code}`, {
+      timeout: 30_000,
+    })
+    .then((values) =>
+      (values ?? []).map((value) => ({
+        ...value,
+        changePercent: optionalNumber(value.changePercent),
+        weight: Number(value.weight),
+      })),
+    );
+}
+
 /** 查询基金同步运行历史。 */
 export async function getFundSyncRunsApi(params: FundApi.FundSyncRunParams) {
-  const response = await requestClient.get<FundApi.RuoYiPage<FundApi.FundSyncRun>>(
-    '/fund/sync/runs',
-    {
-      params,
-      responseReturn: 'body' as const,
-    },
-  );
+  const response = await requestClient.get<
+    FundApi.RuoYiPage<FundApi.FundSyncRun>
+  >('/fund/sync/runs', {
+    params,
+    responseReturn: 'body' as const,
+  });
   return {
     items: (response.rows ?? []).map(normalizeSyncRun),
     total: response.total ?? 0,
@@ -73,20 +92,20 @@ export function getFundSyncStatusApi() {
 
 /** 授权触发一次基金数据同步。 */
 export function triggerFundSyncApi(payload: FundApi.FundManualSyncPayload) {
-  return requestClient.post<FundApi.FundSyncRun>(
-    '/fund/sync/trigger',
-    payload,
-    { timeout: 120_000 },
-  ).then(normalizeManualSyncResult);
+  return requestClient
+    .post<FundApi.FundSyncRun>('/fund/sync/trigger', payload, {
+      timeout: 120_000,
+    })
+    .then(normalizeManualSyncResult);
 }
 
 /** 重试失败或部分成功的同步运行。 */
 export function retryFundSyncApi(runId: number | string) {
-  return requestClient.post<FundApi.FundSyncRun>(
-    `/fund/sync/runs/${runId}/retry`,
-    undefined,
-    { timeout: 120_000 },
-  ).then(normalizeManualSyncResult);
+  return requestClient
+    .post<FundApi.FundSyncRun>(`/fund/sync/runs/${runId}/retry`, undefined, {
+      timeout: 120_000,
+    })
+    .then(normalizeManualSyncResult);
 }
 
 /** 查询基金数据质量问题。 */
@@ -115,8 +134,15 @@ function optionalNumber(value: unknown) {
 function normalizeEstimate(value: FundApi.FundEstimate): FundApi.FundEstimate {
   return {
     ...value,
+    contributions: (value.contributions ?? []).map((contribution) => ({
+      ...contribution,
+      changePercent: Number(contribution.changePercent),
+      contribution: Number(contribution.contribution),
+      weight: Number(contribution.weight),
+    })),
     estimateGrowthRate: optionalNumber(value.estimateGrowthRate),
     estimateNav: optionalNumber(value.estimateNav),
+    holdingCoverageRate: optionalNumber(value.holdingCoverageRate),
     previousNav: optionalNumber(value.previousNav),
   };
 }
@@ -165,8 +191,7 @@ function normalizeQualityIssue(
     discoveredAt: value.discoveredAt || value.detectedAt,
     reasonMessage: value.reasonMessage || value.rawSummary,
     sourceUpdatedAt:
-      value.sourceUpdatedAt ||
-      (value as { sourceTime?: string }).sourceTime,
+      value.sourceUpdatedAt || (value as { sourceTime?: string }).sourceTime,
   };
 }
 

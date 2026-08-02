@@ -30,11 +30,13 @@ class StockRepository:
         normalized_codes = sorted({self._normalize_code(code) for code in stock_codes})
         if not normalized_codes:
             return {}
+        # 一个基金的公开持仓通常只有十余只证券；单次批量请求只取得这些代码，
+        # 不下载全市场，也不会受雪球令牌失效影响。
         market = cache_aside(
             self._cache,
-            "fund_quant:market:a_share:spot",
+            f"fund_quant:market:selected:{','.join(normalized_codes)}",
             self._ttl,
-            self._load_market,
+            lambda: self._load_selected_market(normalized_codes),
             lambda value: value,
             lambda value: value,
         )
@@ -51,8 +53,8 @@ class StockRepository:
             raise DataNotFoundError(f"未获取到股票实时行情: {', '.join(normalized_codes)}")
         return quotes
 
-    def _load_market(self) -> dict[str, dict]:
-        frame = self._client.stock_spot().copy()
+    def _load_selected_market(self, stock_codes: list[str]) -> dict[str, dict]:
+        frame = self._client.stock_spot_by_codes(stock_codes).copy()
         self._require_columns(frame, {"代码", "名称", "最新价", "涨跌幅", "成交量"})
         frame["代码"] = frame["代码"].astype(str).str.extract(r"(\d{6})", expand=False)
         result: dict[str, dict] = {}

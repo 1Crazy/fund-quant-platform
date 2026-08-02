@@ -21,6 +21,14 @@ class AkShareClient:
     def stock_spot(self) -> pd.DataFrame:
         return self._invoke("A股实时行情", ak.stock_zh_a_spot_em)
 
+    def stock_spot_by_codes(self, stock_codes: list[str]) -> pd.DataFrame:
+        """批量获取指定沪深京证券行情，避免为一只基金下载全市场快照。"""
+        return self._invoke(
+            "指定证券实时行情",
+            self._load_eastmoney_stock_quotes,
+            stock_codes=stock_codes,
+        )
+
     def fund_holdings(self, fund_code: str, year: int) -> pd.DataFrame:
         return self._invoke(
             f"基金 {fund_code} {year} 年持仓",
@@ -70,11 +78,51 @@ class AkShareClient:
     def fund_catalog(self) -> pd.DataFrame:
         return self._invoke("基金基础信息", ak.fund_name_em)
 
-    def _invoke(self, name: str, function: Callable[..., pd.DataFrame], **kwargs: str) -> pd.DataFrame:
+    def _invoke(
+        self,
+        name: str,
+        function: Callable[..., pd.DataFrame],
+        **kwargs: object,
+    ) -> pd.DataFrame:
         frame = self._retry(name, lambda: function(**kwargs))
         if frame is None or frame.empty:
             raise UpstreamDataError(f"AkShare 未返回{name}", code="EMPTY_DATA", retryable=False)
         return frame
+
+    @staticmethod
+    def _load_eastmoney_stock_quotes(stock_codes: list[str]) -> pd.DataFrame:
+        secids = ",".join(
+            f"{1 if code.startswith(('5', '6', '9')) else 0}.{code}"
+            for code in stock_codes
+        )
+        response = requests.get(
+            "https://push2.eastmoney.com/api/qt/ulist.np/get",
+            params={
+                "ut": "f057cbcbce2a86e2866ab8877db1d059",
+                "fltt": "2",
+                "invt": "2",
+                "fields": "f12,f14,f2,f3,f5",
+                "secids": secids,
+            },
+            timeout=6,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        records = payload.get("data", {}).get("diff")
+        if not isinstance(records, list):
+            raise ValueError("东方财富指定证券行情缺少 data.diff")
+        return pd.DataFrame(
+            [
+                {
+                    "代码": record.get("f12"),
+                    "名称": record.get("f14"),
+                    "最新价": record.get("f2"),
+                    "涨跌幅": record.get("f3"),
+                    "成交量": record.get("f5"),
+                }
+                for record in records
+            ]
+        )
 
     def _invoke_json(self, name: str, url: str, params: dict[str, str] | None = None) -> dict:
         def request_json() -> dict:
@@ -95,7 +143,11 @@ class AkShareClient:
             raise UpstreamDataError(f"公开接口未返回{name}", code="EMPTY_DATA", retryable=False)
         return data
 
-    def _retry(self, name: str, operation: Callable[[], pd.DataFrame | dict]) -> pd.DataFrame | dict:
+    def _retry(
+        self,
+        name: str,
+        operation: Callable[[], pd.DataFrame | dict],
+    ) -> pd.DataFrame | dict:
         attempts = max(1, self._settings.upstream_max_retries + 1)
         for index in range(attempts):
             try:

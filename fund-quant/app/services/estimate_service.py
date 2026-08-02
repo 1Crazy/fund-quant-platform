@@ -3,7 +3,7 @@ from app.core.cache import NullCache, RedisCache, cache_aside
 from app.core.config import Settings
 from app.repositories.fund_repository import FundRepository
 from app.repositories.stock_repository import StockRepository
-from app.schemas.estimate import EstimateData
+from app.schemas.estimate import EstimateData, HoldingRealtimeQuote
 
 
 class EstimateService:
@@ -32,6 +32,25 @@ class EstimateService:
             EstimateData.model_validate,
         )
 
+    def holding_quotes(self, fund_code: str) -> list[HoldingRealtimeQuote]:
+        code = fund_code.strip()
+        holdings = self._fund_repository.get_holdings(code)
+        quotes = self._stock_repository.get_quotes(
+            [holding.stock_code for holding in holdings]
+        )
+        return [
+            HoldingRealtimeQuote(
+                stockCode=holding.stock_code,
+                stockName=holding.stock_name,
+                weight=holding.weight,
+                changePercent=(quotes[holding.stock_code].change_percent
+                               if holding.stock_code in quotes else None),
+                quoteTime=(quotes[holding.stock_code].update_time
+                           if holding.stock_code in quotes else None),
+            )
+            for holding in holdings
+        ]
+
     def _calculate(self, fund_code: str) -> EstimateData:
         holdings = self._fund_repository.get_holdings(fund_code)
         nav_points = self._fund_repository.get_nav(fund_code, days=1)
@@ -39,4 +58,3 @@ class EstimateService:
             [holding.stock_code for holding in holdings]
         )
         return self._calculator.calculate(fund_code, holdings, quotes, nav_points[-1])
-

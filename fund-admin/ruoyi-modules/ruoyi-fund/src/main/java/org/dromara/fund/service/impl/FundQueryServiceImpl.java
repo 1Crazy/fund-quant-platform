@@ -8,6 +8,7 @@ import org.dromara.common.mybatis.core.page.PageQuery;
 import org.dromara.common.mybatis.core.page.TableDataInfo;
 import org.dromara.common.redis.utils.RedisUtils;
 import org.dromara.fund.config.FundDataProperties;
+import org.dromara.fund.client.FundDataProviderClient;
 import org.dromara.fund.constant.FundCacheConstants;
 import org.dromara.fund.domain.FundInfo;
 import org.dromara.fund.domain.bo.FundQueryBo;
@@ -15,6 +16,7 @@ import org.dromara.fund.domain.dto.FundSyncStatusSummaryVo;
 import org.dromara.fund.domain.vo.FundDetailVo;
 import org.dromara.fund.domain.vo.FundEstimateVo;
 import org.dromara.fund.domain.vo.FundHoldingVo;
+import org.dromara.fund.domain.vo.FundHoldingQuoteVo;
 import org.dromara.fund.domain.vo.FundListVo;
 import org.dromara.fund.domain.vo.FundNavPointVo;
 import org.dromara.fund.mapper.FundHoldingMapper;
@@ -41,6 +43,7 @@ public class FundQueryServiceImpl implements IFundQueryService {
     private final FundNavMapper fundNavMapper;
     private final FundHoldingMapper fundHoldingMapper;
     private final FundDataQualityIssueMapper qualityIssueMapper;
+    private final FundDataProviderClient providerClient;
     private final FundDataProperties properties;
     private final IFundDataSyncService fundDataSyncService;
     private final IFundEstimateService estimateService;
@@ -149,13 +152,31 @@ public class FundQueryServiceImpl implements IFundQueryService {
         if (holdings.isEmpty()) {
             detail.setHoldingNote("最新报告期未披露直接股票持仓；披露持仓不是实时仓位。");
         } else if (holdingCoverageRate.compareTo(new BigDecimal("10")) < 0) {
-            detail.setHoldingNote("直接股票披露占基金净值比例较低；下表不是完整底层资产持仓。");
-            detail.setEstimate(null);
+            // ETF 联接基金常将主要资产归入“其他”，没有目标 ETF 代码时不能用极少量直接股票伪造基金估值。
+            detail.setHoldingNote("直接股票披露占比低于 10%；可刷新查看每只股票行情，但不据此生成基金盘中估值。");
         } else {
             detail.setHoldingNote("持仓为最近公开报告期数据，不代表当前实时仓位。");
         }
         RedisUtils.setCacheObject(detailCacheKey, detail, propertiesInfoTtl());
         return detail;
+    }
+
+    @Override
+    public List<FundHoldingQuoteVo> queryHoldingQuotes(String fundCode) {
+        if (!isExactFundCode(fundCode)) {
+            throw new ServiceException("基金代码格式错误: {}", fundCode);
+        }
+        return providerClient.fetchHoldingQuotes(fundCode).stream()
+            .map(source -> {
+                FundHoldingQuoteVo target = new FundHoldingQuoteVo();
+                target.setStockCode(source.getStockCode());
+                target.setStockName(source.getStockName());
+                target.setWeight(source.getWeight());
+                target.setChangePercent(source.getChangePercent());
+                target.setQuoteTime(source.getQuoteTime() == null ? null : source.getQuoteTime().toLocalDateTime());
+                return target;
+            })
+            .toList();
     }
 
     private java.time.Duration propertiesInfoTtl() {

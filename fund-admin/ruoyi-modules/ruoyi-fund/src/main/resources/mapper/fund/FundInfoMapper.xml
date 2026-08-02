@@ -83,7 +83,9 @@
                sync.fetch_batch_id AS sync_fetch_batch_id,
                estimate.estimate_nav,
                estimate.estimate_growth_rate,
-               estimate.estimate_time,
+               <!-- fund_estimate.estimate_time 是 TIMESTAMPTZ；列表 VO 使用 LocalDateTime，
+                    必须显式投影为上海时区本地时间，避免 PostgreSQL JDBC 的类型转换异常。 -->
+               estimate.estimate_time AT TIME ZONE 'Asia/Shanghai' AS estimate_time,
                CASE
                    WHEN estimate.estimate_time IS NULL THEN TRUE
                    WHEN estimate.source_status != 'NORMAL' THEN TRUE

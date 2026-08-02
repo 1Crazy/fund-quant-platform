@@ -15,7 +15,7 @@ from app.schemas.data_center import (
     ProviderScope,
     SyncEnvelope,
 )
-from app.schemas.estimate import EstimateData
+from app.schemas.estimate import EstimateData, HoldingRealtimeQuote
 from app.schemas.market import FundHolding, FundInfo, FundNavPoint, StockQuote
 from app.services.estimate_service import EstimateService
 from app.services.fund_data_service import FundDataService
@@ -46,6 +46,16 @@ async def get_estimate(
     service: Annotated[EstimateService, Depends(get_estimate_service)],
 ) -> ApiEnvelope[EstimateData]:
     data = await run_in_threadpool(service.estimate, code)
+    return ApiEnvelope(success=True, data=data, requestId=request.state.request_id)
+
+
+@router.get("/holding-quotes/{code}", response_model=ApiEnvelope[list[HoldingRealtimeQuote]])
+async def get_holding_quotes(
+    request: Request,
+    code: FundCode,
+    service: Annotated[EstimateService, Depends(get_estimate_service)],
+) -> ApiEnvelope[list[HoldingRealtimeQuote]]:
+    data = await run_in_threadpool(service.holding_quotes, code)
     return ApiEnvelope(success=True, data=data, requestId=request.state.request_id)
 
 
