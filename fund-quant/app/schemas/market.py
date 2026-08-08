@@ -19,6 +19,9 @@ class FundHolding(ApiModel):
     stock_name: str
     weight: Decimal
     report_period: str
+    data_version: str | None = None
+    quality_status: str | None = None
+    quality_reason: str | None = None
 
 
 class FundNavPoint(ApiModel):
@@ -27,6 +30,9 @@ class FundNavPoint(ApiModel):
     nav: Decimal
     accumulated_nav: Decimal | None = None
     growth_rate: Decimal | None = None
+    data_version: str | None = None
+    quality_status: str | None = None
+    quality_reason: str | None = None
 
 
 class FundInfo(ApiModel):

@@ -120,7 +120,7 @@ security:
 # 多租户配置
 tenant:
   # 是否开启
-  enable: true
+  enable: false
   # 排除表
   excludes:
     - sys_menu
@@ -145,6 +145,10 @@ tenant:
     - fund_sync_run
     - fund_data_quality_issue
     - fund_industry_allocation
+    # 量化配置是跨租户共享的发布事实源。
+    - quant_config_version
+    - quant_config_release
+    - quant_config_release_item
 
 # 基金实时估值配置
 fund:
@@ -170,9 +174,14 @@ fund:
   estimate:
     # 上游估值接口可在不同环境通过环境变量替换，默认关闭远端回源，仅使用数据库与缓存。
     provider-url: ${FUND_ESTIMATE_PROVIDER_URL:}
-    # Python 冷缓存需抓取持仓、净值与行情；连接和读取超时分开配置。
-    provider-connect-timeout: 2s
-    provider-read-timeout: 30s
+  quant-config:
+    # Python 只做跨端结构兼容性复核；连接超时和缓存 TTL 属于运维配置。
+    provider-validation-url: ${FUND_QUANT_CONFIG_PROVIDER_VALIDATION_URL:}
+    provider-connect-timeout: ${FUND_QUANT_CONFIG_PROVIDER_CONNECT_TIMEOUT:2s}
+    provider-read-timeout: ${FUND_QUANT_CONFIG_PROVIDER_READ_TIMEOUT:10s}
+    group-cache-ttl: ${FUND_QUANT_CONFIG_GROUP_CACHE_TTL:24h}
+    # D-011 已于 2026-08-08 确认；首发仍须通过 Java/Python 双端校验与权限检查。
+    initial-release-approved: ${FUND_QUANT_CONFIG_INITIAL_RELEASE_APPROVED:true}
     cache-ttl: 45s
     stale-after: 3m
     schedule-enabled: true

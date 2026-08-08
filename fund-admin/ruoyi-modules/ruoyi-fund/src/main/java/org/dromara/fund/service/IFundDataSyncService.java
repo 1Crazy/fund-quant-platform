@@ -6,6 +6,7 @@ import org.dromara.fund.domain.bo.FundDataQualityIssueQueryBo;
 import org.dromara.fund.domain.bo.FundSyncRunQueryBo;
 import org.dromara.fund.domain.dto.FundSyncStatusSummaryVo;
 import org.dromara.fund.domain.vo.FundDataQualityIssueVo;
+import org.dromara.fund.domain.vo.FundGlobalNavSyncStatusVo;
 import org.dromara.fund.domain.vo.FundHoldingVo;
 import org.dromara.fund.domain.vo.FundSyncRunVo;
 
@@ -50,6 +51,22 @@ public interface IFundDataSyncService {
     FundSyncRunVo runIncremental();
 
     /**
+     * 提交一次全市场基金目录与完整历史净值同步。
+     */
+    FundSyncRunVo submitFullHistorySync();
+
+    /**
+     * 按每只基金已确认的最大净值日期继续同步到当前日期。
+     */
+    FundSyncRunVo submitLatestNavContinuation();
+
+    /** 暂停当前全量确认净值同步，保留已完成进度和游标。 */
+    FundSyncRunVo pauseGlobalNavSync();
+
+    /** 继续已暂停或服务重启中断的全量确认净值同步。 */
+    FundSyncRunVo resumeGlobalNavSync();
+
+    /**
      * 手动触发单基金档案、净值和持仓同步。
      */
     FundSyncRunVo triggerFundSync(String fundCode, int days);
@@ -74,6 +91,9 @@ public interface IFundDataSyncService {
     FundSyncRunVo retryRun(Long id);
 
     FundSyncStatusSummaryVo queryStatus(String dataset, String scopeType, String scopeValue);
+
+    /** 全量确认净值任务的实际执行状态与目录进度。 */
+    FundGlobalNavSyncStatusVo queryGlobalNavStatus();
 
     TableDataInfo<FundDataQualityIssueVo> queryIssuePage(FundDataQualityIssueQueryBo bo, PageQuery pageQuery);
 }

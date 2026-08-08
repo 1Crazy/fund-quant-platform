@@ -22,7 +22,7 @@ snail-job:
   # SnailJob 接入验证令牌 详见 script/sql/ry_job.sql `sj_group_config`表
   token: "SJ_cKqBTPzCsWA3VyuCfFoccmuIEGXjr5KT"
   server:
-    host: 127.0.0.1
+    host: localhost
     port: 17888
   # 命名空间UUID 详见 script/sql/ry_job.sql `sj_namespace`表`unique_id`字段
   namespace: ${spring.profiles.active}
@@ -201,7 +201,7 @@ justauth:
       redirect-uri: ${justauth.address}/social-callback?source=maxkey
     topiam:
       # topiam 服务器地址
-      server-url: http://127.0.0.1:1989/api/v1/authorize/y0q************spq***********8ol
+      server-url: http://localhost:1989/api/v1/authorize/y0q************spq***********8ol
       client-id: 449c4*********937************759
       client-secret: ac7***********1e0************28d
       redirect-uri: ${justauth.address}/social-callback?source=topiam

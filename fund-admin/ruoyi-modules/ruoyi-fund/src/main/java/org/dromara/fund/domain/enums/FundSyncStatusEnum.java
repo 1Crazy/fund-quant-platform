@@ -10,6 +10,7 @@ public enum FundSyncStatusEnum {
 
     PENDING("PENDING", "待执行"),
     RUNNING("RUNNING", "运行中"),
+    PAUSED("PAUSED", "已暂停"),
     SUCCESS("SUCCESS", "成功"),
     PARTIAL_SUCCESS("PARTIAL_SUCCESS", "部分成功"),
     FAILED("FAILED", "失败"),

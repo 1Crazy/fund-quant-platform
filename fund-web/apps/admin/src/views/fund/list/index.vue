@@ -1,15 +1,19 @@
 <script lang="ts" setup>
-import { computed, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 
+import { useAccess } from '@vben/access';
 import { Page } from '@vben/common-ui';
 import { RotateCw, Search } from '@vben/icons';
 
 import {
   ElButton,
   ElCard,
+  ElDrawer,
   ElEmpty,
   ElInput,
+  ElMessage,
+  ElMessageBox,
   ElOption,
   ElPagination,
   ElSelect,
@@ -22,11 +26,42 @@ import { storeToRefs } from 'pinia';
 import type { FundApi } from '#/api/fund';
 import { useFundStore } from '#/store';
 
-import { qualityStatusMeta, syncStatusMeta } from '../utils/status';
+import {
+  estimateRefreshPermissions,
+  estimateStatusMeta,
+  manualSyncPermissions,
+  navPositionRegionMeta,
+  qualityStatusMeta,
+  syncStatusMeta,
+} from '../utils/status';
+import FundDetailDrawer from '../detail/index.vue';
+import GlobalNavSyncDrawer from '../sync/GlobalNavSyncDrawer.vue';
 
+const route = useRoute();
 const router = useRouter();
 const fundStore = useFundStore();
-const { list, listLoading, query, total } = storeToRefs(fundStore);
+const { hasAccessByCodes } = useAccess();
+const {
+  estimateScheduleStatus,
+  list,
+  listLoading,
+  navPositionBatchLoading,
+  navPositionBatchStatus,
+  query,
+  syncTriggerLoading,
+  total,
+} = storeToRefs(fundStore);
+const drawerVisible = ref(false);
+const syncDrawerVisible = ref(false);
+const selectedFundCode = ref('');
+const canMonitorEstimate = computed(() =>
+  hasAccessByCodes(['*:*:*', 'fund:estimate:monitor']),
+);
+const canManualSync = computed(() => hasAccessByCodes(manualSyncPermissions));
+const canCalculateNavPosition = computed(() =>
+  hasAccessByCodes(estimateRefreshPermissions),
+);
+let navPositionBatchPollingTimer: ReturnType<typeof setInterval> | undefined;
 
 const rangeSummary = computed(() => {
   if (!total.value) return '暂无基金数据';
@@ -39,6 +74,10 @@ function formatNav(value?: number) {
   return value == null ? '--' : value.toFixed(4);
 }
 
+function formatCoverage(value?: number) {
+  return value == null ? '--' : `${value.toFixed(2)}%`;
+}
+
 function formatSource(row: FundApi.FundListItem) {
   if (!row.source) return '--';
   return row.sourceUpdatedAt ? `${row.source} · ${row.sourceUpdatedAt}` : row.source;
@@ -49,8 +88,68 @@ function growthClass(value?: number) {
   return value > 0 ? 'text-rose-600' : 'text-emerald-600';
 }
 
+function formatPositionScore(value?: number) {
+  return value == null ? '--' : `${value.toFixed(2)} 分`;
+}
+
+const scheduleSummary = computed(() => {
+  const status = estimateScheduleStatus.value;
+  if (!status) return '';
+  if (!status.scheduleEnabled) return '调度已关闭';
+  if (!status.activeTradingSession) return '当前非交易时段';
+  return `本批 ${status.normalCount ?? 0}/${status.requestedCount ?? 0} 可用`;
+});
+
+const scheduleTagType = computed(() => {
+  const status = estimateScheduleStatus.value;
+  if (!status || !status.scheduleEnabled) return 'info';
+  if (status.scheduleLockHeld || (status.failedCount ?? 0) > 0) return 'warning';
+  return status.activeTradingSession ? 'success' : 'info';
+});
+
+const navPositionBatchSummary = computed(() => {
+  const status = navPositionBatchStatus.value;
+  if (!status || status.state === 'IDLE') return '';
+  if (status.state === 'RUNNING') {
+    return `历史位置计算 ${status.processedCount}/${status.requestedCount}`;
+  }
+  if (status.state === 'SUCCESS' || status.state === 'PARTIAL_SUCCESS') {
+    return `历史位置已完成 ${status.normalCount}/${status.requestedCount}`;
+  }
+  return '历史位置计算失败';
+});
+
+const navPositionBatchTagType = computed(() => {
+  switch (navPositionBatchStatus.value?.state) {
+    case 'SUCCESS':
+      return 'success';
+    case 'PARTIAL_SUCCESS':
+      return 'warning';
+    case 'FAILED':
+      return 'danger';
+    default:
+      return 'primary';
+  }
+});
+
 function openDetail(row: FundApi.FundListItem) {
-  router.push({ path: '/fund/detail', query: { code: row.fundCode } });
+  selectedFundCode.value = row.fundCode;
+  drawerVisible.value = true;
+  void router.replace({
+    path: '/fund/list',
+    query: { ...route.query, code: row.fundCode },
+  });
+}
+
+function closeDetail() {
+  drawerVisible.value = false;
+  const nextQuery = { ...route.query };
+  delete nextQuery.code;
+  void router.replace({ path: '/fund/list', query: nextQuery });
+}
+
+function openSyncStatus() {
+  syncDrawerVisible.value = true;
 }
 
 async function search() {
@@ -63,6 +162,86 @@ async function reset() {
   await fundStore.fetchList();
 }
 
+async function submitGlobalNavSync(
+  syncType: 'CONTINUE_FROM_LATEST_NAV' | 'FULL_HISTORY',
+) {
+  const isFullHistory = syncType === 'FULL_HISTORY';
+  try {
+    await ElMessageBox.confirm(
+      isFullHistory
+        ? '将先同步上游公开基金目录，再逐只拉取目录内全部基金的历史确认净值至今天。该任务耗时较长，提交后可在同步状态抽屉查看进度。'
+        : '将逐只读取当前最大确认净值日期，并从下一日期续拉至今天；没有新净值的基金会被跳过。该任务会在后台持续执行，可在同步管理查看进度。',
+      isFullHistory ? '确认全量历史同步' : '确认按最新净值续拉',
+      {
+        cancelButtonText: '取消',
+        confirmButtonText: '确认开始',
+        type: 'warning',
+      },
+    );
+  } catch {
+    return;
+  }
+
+  const result = await fundStore.triggerSync({
+    dataset: 'fund_nav',
+    syncScope: 'ALL',
+    syncType,
+  });
+  await fundStore.fetchList();
+  ElMessage.success(result.message || '同步任务已提交，可在同步管理查看进度');
+}
+
+function stopNavPositionBatchPolling() {
+  if (navPositionBatchPollingTimer) {
+    clearInterval(navPositionBatchPollingTimer);
+    navPositionBatchPollingTimer = undefined;
+  }
+}
+
+async function refreshNavPositionBatchProgress() {
+  try {
+    const status = await fundStore.fetchNavPositionBatchStatus();
+    if (status.state === 'RUNNING') {
+      return;
+    }
+    stopNavPositionBatchPolling();
+    await fundStore.fetchList();
+  } catch {
+    stopNavPositionBatchPolling();
+  }
+}
+
+function startNavPositionBatchPolling() {
+  stopNavPositionBatchPolling();
+  navPositionBatchPollingTimer = setInterval(() => {
+    void refreshNavPositionBatchProgress();
+  }, 4000);
+}
+
+async function submitNavPositionBatchCalculation() {
+  try {
+    await ElMessageBox.confirm(
+      '将使用当前已发布的量化配置，为所有已有确认净值的基金计算历史位置，并更新列表中的低位、正常、高位或风险区域。净值样本不足的基金会保留为不可用。任务在后台执行，可继续浏览页面。',
+      '确认全量计算历史位置',
+      {
+        cancelButtonText: '取消',
+        confirmButtonText: '确认计算',
+        type: 'warning',
+      },
+    );
+  } catch {
+    return;
+  }
+
+  const result = await fundStore.refreshAllNavPositions();
+  if (result.state === 'RUNNING') {
+    startNavPositionBatchPolling();
+    ElMessage.success('历史位置计算已提交，完成后列表会自动刷新');
+    return;
+  }
+  ElMessage.info('历史位置计算任务已在执行，已显示当前进度');
+}
+
 function changePage() {
   void fundStore.fetchList();
 }
@@ -71,7 +250,27 @@ function changePageSize() {
   void fundStore.fetchList(true);
 }
 
-onMounted(() => fundStore.fetchList());
+watch(
+  () => route.query.code,
+  (value) => {
+    const code = String(value ?? '').trim();
+    selectedFundCode.value = code;
+    drawerVisible.value = Boolean(code);
+  },
+  { immediate: true },
+);
+
+onMounted(async () => {
+  await Promise.all([fundStore.fetchList(), fundStore.fetchNavPositionBatchStatus()]);
+  if (navPositionBatchStatus.value?.state === 'RUNNING') {
+    startNavPositionBatchPolling();
+  }
+  if (canMonitorEstimate.value) {
+    await fundStore.fetchEstimateScheduleStatus();
+  }
+});
+
+onBeforeUnmount(stopNavPositionBatchPolling);
 </script>
 
 <template>
@@ -83,14 +282,57 @@ onMounted(() => fundStore.fetchList());
           <h1>基金实时估值</h1>
           <p>净值、盘中估值与更新时间集中呈现，快速定位当天异动基金。</p>
         </div>
-        <div class="market-stat">
-          <span class="live-dot" aria-hidden="true"></span>
-          <span>{{ rangeSummary }}</span>
+        <div class="market-actions">
+          <div class="market-stat">
+            <span class="live-dot" aria-hidden="true"></span>
+            <span>{{ rangeSummary }}</span>
+            <ElTag v-if="scheduleSummary" :type="scheduleTagType" effect="plain" size="small">
+              {{ scheduleSummary }}
+            </ElTag>
+            <ElTag
+              v-if="navPositionBatchSummary"
+              :type="navPositionBatchTagType"
+              effect="plain"
+              size="small"
+            >
+              {{ navPositionBatchSummary }}
+            </ElTag>
+          </div>
+          <div class="market-sync-actions">
+            <ElButton @click="openSyncStatus">
+              <RotateCw class="mr-1 size-4" />同步状态
+            </ElButton>
+            <ElButton
+              v-if="canCalculateNavPosition"
+              :disabled="navPositionBatchStatus?.state === 'RUNNING'"
+              :loading="navPositionBatchLoading"
+              type="success"
+              @click="submitNavPositionBatchCalculation"
+            >
+              <RotateCw class="mr-1 size-4" />全量计算历史位置
+            </ElButton>
+            <ElButton
+              v-if="canManualSync"
+              :loading="syncTriggerLoading"
+              type="warning"
+              @click="submitGlobalNavSync('FULL_HISTORY')"
+            >
+              <RotateCw class="mr-1 size-4" />全量历史同步
+            </ElButton>
+            <ElButton
+              v-if="canManualSync"
+              :loading="syncTriggerLoading"
+              type="primary"
+              @click="submitGlobalNavSync('CONTINUE_FROM_LATEST_NAV')"
+            >
+              <RotateCw class="mr-1 size-4" />按最新净值续拉
+            </ElButton>
+          </div>
         </div>
       </section>
 
       <ElCard class="filter-panel" shadow="never">
-        <div class="grid gap-3 xl:grid-cols-[150px_1fr_150px_150px_150px_150px_auto]">
+        <div class="grid gap-3 xl:grid-cols-[150px_1fr_150px_150px_150px_150px_150px_auto]">
           <ElInput
             v-model="query.fundCode"
             clearable
@@ -130,6 +372,12 @@ onMounted(() => fundStore.fetchList());
             <ElOption label="部分成功" value="PARTIAL_SUCCESS" />
             <ElOption label="失败" value="FAILED" />
             <ElOption label="已取消" value="CANCELLED" />
+          </ElSelect>
+          <ElSelect v-model="query.navPositionRegion" clearable placeholder="历史位置">
+            <ElOption label="低估值" value="LOW_VALUATION" />
+            <ElOption label="正常估值" value="NORMAL" />
+            <ElOption label="高估值" value="HIGH_VALUATION" />
+            <ElOption label="风险区域" value="RISK" />
           </ElSelect>
           <div class="flex gap-2">
             <ElButton :loading="listLoading" type="primary" @click="search">
@@ -195,7 +443,9 @@ onMounted(() => fundStore.fetchList());
             </template>
           </ElTableColumn>
           <ElTableColumn align="right" label="盘中估值" min-width="120">
-            <template #default="{ row }">{{ formatNav(row.estimateNav) }}</template>
+            <template #default="{ row }">
+              {{ row.estimateSourceStatus === 'NORMAL' && !row.isStale ? formatNav(row.estimateNav) : '--' }}
+            </template>
           </ElTableColumn>
           <ElTableColumn align="right" label="估算涨跌" min-width="120">
             <template #default="{ row }">
@@ -204,11 +454,52 @@ onMounted(() => fundStore.fetchList());
               </span>
             </template>
           </ElTableColumn>
+          <ElTableColumn label="估值状态" min-width="120">
+            <template #default="{ row }">
+              <ElTag :type="estimateStatusMeta(row.estimateSourceStatus).type" effect="plain">
+                {{ estimateStatusMeta(row.estimateSourceStatus).label }}
+              </ElTag>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="历史位置" min-width="150">
+            <template #default="{ row }">
+              <div v-if="row.navPositionRegion" class="leading-5">
+                <ElTag
+                  :type="navPositionRegionMeta(row.navPositionRegion).type"
+                  effect="plain"
+                >
+                  {{ navPositionRegionMeta(row.navPositionRegion).label }}
+                </ElTag>
+                <div class="text-xs text-slate-500">
+                  {{ formatPositionScore(row.navPositionScore) }} · {{ row.navPositionTradeDate || '--' }}
+                </div>
+              </div>
+              <button
+                v-else
+                class="position-action"
+                type="button"
+                @click.stop="openDetail(row)"
+              >
+                计算
+              </button>
+            </template>
+          </ElTableColumn>
+          <ElTableColumn label="覆盖率" min-width="150">
+            <template #default="{ row }">
+              <div class="leading-5 tabular-nums">
+                <div>持仓 {{ formatCoverage(row.estimateHoldingCoverageRate) }}</div>
+                <div class="text-xs text-slate-500">行情 {{ formatCoverage(row.estimateQuoteCoverageRate) }}</div>
+              </div>
+            </template>
+          </ElTableColumn>
           <ElTableColumn label="估值时间" min-width="190" prop="estimateTime">
             <template #default="{ row }">
-              <div class="flex items-center gap-2">
-                <span>{{ row.estimateTime || '--' }}</span>
+              <div class="leading-5">
+                <div>{{ row.estimateTime || '--' }}</div>
                 <ElTag v-if="row.isStale" size="small" type="warning">已过期</ElTag>
+                <div v-else-if="row.estimateStatusReason" class="max-w-52 truncate text-xs text-slate-500">
+                  {{ row.estimateStatusReason }}
+                </div>
               </div>
             </template>
           </ElTableColumn>
@@ -229,6 +520,21 @@ onMounted(() => fundStore.fetchList());
           />
         </div>
       </ElCard>
+
+      <ElDrawer
+        v-model="drawerVisible"
+        :size="'min(1100px, 100vw)'"
+        append-to-body
+        destroy-on-close
+        direction="rtl"
+        @close="closeDetail"
+      >
+        <template #header>
+          <div class="drawer-title">基金详情</div>
+        </template>
+        <FundDetailDrawer :active="drawerVisible" :code="selectedFundCode" />
+      </ElDrawer>
+      <GlobalNavSyncDrawer v-model="syncDrawerVisible" />
     </div>
   </Page>
 </template>
@@ -279,6 +585,21 @@ onMounted(() => fundStore.fetchList());
   gap: 8px;
 }
 
+.market-actions {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.market-sync-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .live-dot {
   background: #0f766e;
   border-radius: 999px;
@@ -291,6 +612,35 @@ onMounted(() => fundStore.fetchList());
   color: var(--fund-teal);
   cursor: pointer;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+}
+
+.position-action {
+  color: var(--fund-teal);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.position-action:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 900px) {
+  .market-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .market-actions {
+    align-items: flex-start;
+    justify-content: flex-start;
+  }
+}
+
+.drawer-title {
+  color: #14213d;
+  font-size: 16px;
   font-weight: 700;
 }
 

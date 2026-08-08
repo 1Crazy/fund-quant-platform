@@ -14,17 +14,16 @@ install:
 	$(VENV_PYTHON) -m pip install -r requirements-dev.txt
 	@test -f .env || cp .env.example .env
 
-# 日常开发使用热重载；直接调用虚拟环境内命令，不要求手动 source。
+# 日常开发使用热重载；以 IPv6 双栈监听兼容 localhost 的 IPv4/IPv6 解析。
 dev:
-	$(UVICORN) app.main:app --reload --port 8000
+	$(UVICORN) app.main:app --reload --host :: --port 8000
 
 # 非热重载启动，适用于本地联调时希望进程更稳定的场景。
 start:
-	$(UVICORN) app.main:app --host 0.0.0.0 --port 8000
+	$(UVICORN) app.main:app --host :: --port 8000
 
 test:
 	$(PYTEST)
 
 lint:
 	$(RUFF) check app tests
-

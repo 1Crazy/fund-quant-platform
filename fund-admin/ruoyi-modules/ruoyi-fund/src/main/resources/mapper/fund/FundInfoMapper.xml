@@ -4,6 +4,137 @@
     "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="org.dromara.fund.mapper.FundInfoMapper">
 
+    <select id="hasReadyEstimateInputs" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1
+            FROM fund_info fi
+            WHERE fi.fund_code = #{fundCode}
+              AND fi.status = '0'
+              AND fi.del_flag = 0
+              AND fi.quality_status = 'NORMAL'
+              AND (
+                  SELECT nav.quality_status
+                  FROM fund_nav nav
+                  WHERE nav.fund_code = fi.fund_code
+                  ORDER BY nav.nav_date DESC
+                  LIMIT 1
+              ) = 'NORMAL'
+              AND (
+                  SELECT holding.quality_status
+                  FROM fund_holding holding
+                  WHERE holding.fund_code = fi.fund_code
+                  ORDER BY holding.report_date DESC
+                  LIMIT 1
+              ) = 'NORMAL'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM fund_holding holding
+                  WHERE holding.fund_code = fi.fund_code
+                    AND holding.report_date = (
+                        SELECT MAX(latest_holding.report_date)
+                        FROM fund_holding latest_holding
+                        WHERE latest_holding.fund_code = fi.fund_code
+                    )
+                    AND holding.quality_status IS DISTINCT FROM 'NORMAL'
+              )
+        )
+    </select>
+
+    <select id="selectReadyEstimateFundCodes" resultType="string">
+        SELECT fi.fund_code
+        FROM fund_info fi
+        WHERE fi.status = '0'
+          AND fi.del_flag = 0
+          AND fi.quality_status = 'NORMAL'
+          AND fi.fund_code IN
+          <foreach collection="fundCodes" item="fundCode" open="(" separator="," close=")">
+              #{fundCode}
+          </foreach>
+          AND (
+              SELECT nav.quality_status
+              FROM fund_nav nav
+              WHERE nav.fund_code = fi.fund_code
+              ORDER BY nav.nav_date DESC
+              LIMIT 1
+          ) = 'NORMAL'
+          AND (
+              SELECT holding.quality_status
+              FROM fund_holding holding
+              WHERE holding.fund_code = fi.fund_code
+              ORDER BY holding.report_date DESC
+              LIMIT 1
+          ) = 'NORMAL'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM fund_holding holding
+              WHERE holding.fund_code = fi.fund_code
+                AND holding.report_date = (
+                    SELECT MAX(latest_holding.report_date)
+                    FROM fund_holding latest_holding
+                    WHERE latest_holding.fund_code = fi.fund_code
+                )
+                AND holding.quality_status IS DISTINCT FROM 'NORMAL'
+          )
+        ORDER BY fi.fund_code
+        LIMIT #{batchSize}
+    </select>
+
+    <select id="selectActiveFundCodesAfter" resultType="string">
+        SELECT fi.fund_code
+        FROM fund_info fi
+        WHERE fi.status = '0'
+          AND fi.del_flag = 0
+        <if test="lastFundCode != null and lastFundCode != ''">
+            AND fi.fund_code &gt; #{lastFundCode}
+        </if>
+        ORDER BY fi.fund_code
+        LIMIT #{batchSize}
+    </select>
+
+    <select id="countActiveFundCodes" resultType="int">
+        SELECT COUNT(*)
+        FROM fund_info fi
+        WHERE fi.status = '0'
+          AND fi.del_flag = 0
+    </select>
+
+    <select id="countActiveFundCodesThrough" resultType="int">
+        SELECT COUNT(*)
+        FROM fund_info fi
+        WHERE fi.status = '0'
+          AND fi.del_flag = 0
+          AND fi.fund_code &lt;= #{lastFundCode}
+    </select>
+
+    <select id="selectActiveFundCodesWithNavAfter" resultType="string">
+        SELECT fi.fund_code
+        FROM fund_info fi
+        WHERE fi.status = '0'
+          AND fi.del_flag = 0
+          AND EXISTS (
+              SELECT 1
+              FROM fund_nav fn
+              WHERE fn.fund_code = fi.fund_code
+          )
+        <if test="lastFundCode != null and lastFundCode != ''">
+            AND fi.fund_code &gt; #{lastFundCode}
+        </if>
+        ORDER BY fi.fund_code
+        LIMIT #{batchSize}
+    </select>
+
+    <select id="countActiveFundCodesWithNav" resultType="int">
+        SELECT COUNT(*)
+        FROM fund_info fi
+        WHERE fi.status = '0'
+          AND fi.del_flag = 0
+          AND EXISTS (
+              SELECT 1
+              FROM fund_nav fn
+              WHERE fn.fund_code = fi.fund_code
+          )
+    </select>
+
     <insert id="upsert">
         INSERT INTO fund_info (
             id, fund_code, fund_name, fund_type, pinyin_abbr,
@@ -86,10 +217,16 @@
                <!-- fund_estimate.estimate_time 是 TIMESTAMPTZ；列表 VO 使用 LocalDateTime，
                     必须显式投影为上海时区本地时间，避免 PostgreSQL JDBC 的类型转换异常。 -->
                estimate.estimate_time AT TIME ZONE 'Asia/Shanghai' AS estimate_time,
+               estimate.source_status AS estimate_source_status,
+               estimate.holding_coverage_rate AS estimate_holding_coverage_rate,
+               estimate.quote_coverage_rate AS estimate_quote_coverage_rate,
+               estimate.missing_quote_count AS estimate_missing_quote_count,
+               estimate.status_reason AS estimate_status_reason,
                CASE
                    WHEN estimate.estimate_time IS NULL THEN TRUE
                    WHEN estimate.source_status != 'NORMAL' THEN TRUE
-                   WHEN estimate.estimate_time &lt; CURRENT_TIMESTAMP - INTERVAL '3 minutes' THEN TRUE
+                   WHEN estimate.estimate_time &lt; CURRENT_TIMESTAMP
+                       - (#{estimateStaleAfterSeconds} * INTERVAL '1 second') THEN TRUE
                    ELSE FALSE
                END AS stale
         FROM fund_info fi
@@ -119,9 +256,15 @@
             SELECT fe.estimate_nav,
                    fe.estimate_growth_rate,
                    fe.estimate_time,
-                   fe.source_status
+                   fe.source_status,
+                   fe.holding_coverage_rate,
+                   fe.quote_coverage_rate,
+                   fe.missing_quote_count,
+                   fe.status_reason
             FROM fund_estimate fe
             WHERE fe.fund_code = fi.fund_code
+              AND fe.config_release_version = #{configReleaseVersion}
+              AND fe.config_release_checksum = #{configReleaseChecksum}
             ORDER BY fe.estimate_time DESC
             LIMIT 1
         ) estimate ON TRUE
@@ -146,6 +289,19 @@
         </if>
         <if test="bo.syncStatus != null and bo.syncStatus != ''">
             AND sync.state = #{bo.syncStatus}
+        </if>
+        <if test="bo.navPositionFundCodes != null">
+            <choose>
+                <when test="bo.navPositionFundCodes.size() > 0">
+                    AND fi.fund_code IN
+                    <foreach collection="bo.navPositionFundCodes" item="fundCode" open="(" separator="," close=")">
+                        #{fundCode}
+                    </foreach>
+                </when>
+                <otherwise>
+                    AND 1 = 0
+                </otherwise>
+            </choose>
         </if>
         <if test="bo.status != null and bo.status != ''">
             AND fi.status = #{bo.status}

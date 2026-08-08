@@ -14,12 +14,17 @@ import org.dromara.fund.domain.dto.FundSyncStatusSummaryVo;
 import org.dromara.fund.domain.vo.FundDataQualityIssueVo;
 import org.dromara.fund.domain.vo.FundDetailVo;
 import org.dromara.fund.domain.vo.FundEstimateVo;
+import org.dromara.fund.domain.vo.FundEstimateScheduleStatusVo;
+import org.dromara.fund.domain.vo.FundGlobalNavSyncStatusVo;
 import org.dromara.fund.domain.vo.FundHoldingVo;
 import org.dromara.fund.domain.vo.FundHoldingQuoteVo;
 import org.dromara.fund.domain.vo.FundListVo;
+import org.dromara.fund.domain.vo.FundNavPositionVo;
+import org.dromara.fund.domain.vo.FundNavPositionBatchStatusVo;
 import org.dromara.fund.domain.vo.FundSyncRunVo;
 import org.dromara.fund.service.IFundDataSyncService;
 import org.dromara.fund.service.IFundEstimateService;
+import org.dromara.fund.service.IFundNavPositionService;
 import org.dromara.fund.service.IFundQueryService;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -44,6 +49,7 @@ public class FundController {
 
     private final IFundQueryService fundQueryService;
     private final IFundEstimateService fundEstimateService;
+    private final IFundNavPositionService fundNavPositionService;
     private final IFundDataSyncService fundDataSyncService;
 
     @SaCheckPermission("fund:info:list")
@@ -71,6 +77,48 @@ public class FundController {
         @PathVariable String code
     ) {
         return R.ok(fundEstimateService.queryEstimate(code));
+    }
+
+    /**
+     * 查询历史 NAV 位置。区域仅反映历史净值分位，不构成交易建议。
+     */
+    @SaCheckPermission("fund:info:query")
+    @GetMapping("/valuation/{code}")
+    public R<FundNavPositionVo> valuation(
+        @Pattern(regexp = "^[0-9]{6}$", message = "基金代码格式不正确")
+        @PathVariable String code
+    ) {
+        return R.ok(fundNavPositionService.queryNavPosition(code));
+    }
+
+    /**
+     * 以当前发布的量化参数，异步计算所有已有确认净值基金的历史位置。
+     */
+    @SaCheckPermission("fund:estimate:refresh")
+    @PostMapping("/valuation/batch/refresh")
+    public R<FundNavPositionBatchStatusVo> refreshAllNavPositions() {
+        return R.ok(fundNavPositionService.submitBatchCalculation());
+    }
+
+    @SaCheckPermission("fund:info:query")
+    @GetMapping("/valuation/batch/status")
+    public R<FundNavPositionBatchStatusVo> navPositionBatchStatus() {
+        return R.ok(fundNavPositionService.queryBatchCalculationStatus());
+    }
+
+    @SaCheckPermission("fund:estimate:refresh")
+    @PostMapping("/estimate/{code}/refresh")
+    public R<FundEstimateVo> refreshEstimate(
+        @Pattern(regexp = "^[0-9A-Za-z]{1,12}$", message = "基金代码格式不正确")
+        @PathVariable String code
+    ) {
+        return R.ok(fundEstimateService.refreshEstimate(code));
+    }
+
+    @SaCheckPermission("fund:estimate:monitor")
+    @GetMapping("/estimate/status")
+    public R<FundEstimateScheduleStatusVo> estimateStatus() {
+        return R.ok(fundEstimateService.queryScheduleStatus());
     }
 
     @SaCheckPermission("fund:info:query")
@@ -115,6 +163,24 @@ public class FundController {
     }
 
     @SaCheckPermission("fund:sync:query")
+    @GetMapping("/sync/global-nav/status")
+    public R<FundGlobalNavSyncStatusVo> globalNavSyncStatus() {
+        return R.ok(fundDataSyncService.queryGlobalNavStatus());
+    }
+
+    @SaCheckPermission("fund:sync:trigger")
+    @PostMapping("/sync/global-nav/pause")
+    public R<FundSyncRunVo> pauseGlobalNavSync() {
+        return R.ok(fundDataSyncService.pauseGlobalNavSync());
+    }
+
+    @SaCheckPermission("fund:sync:trigger")
+    @PostMapping("/sync/global-nav/resume")
+    public R<FundSyncRunVo> resumeGlobalNavSync() {
+        return R.ok(fundDataSyncService.resumeGlobalNavSync());
+    }
+
+    @SaCheckPermission("fund:sync:query")
     @GetMapping({"/sync/issues", "/quality-issues"})
     public TableDataInfo<FundDataQualityIssueVo> qualityIssues(
         FundDataQualityIssueQueryBo bo,
@@ -127,6 +193,12 @@ public class FundController {
     @PostMapping("/sync/trigger")
     public R<FundSyncRunVo> trigger(@Validated @RequestBody FundManualSyncBo bo) {
         String syncType = bo.getSyncType() == null ? "" : bo.getSyncType();
+        if ("FULL_HISTORY".equalsIgnoreCase(syncType)) {
+            return R.ok(fundDataSyncService.submitFullHistorySync());
+        }
+        if ("CONTINUE_FROM_LATEST_NAV".equalsIgnoreCase(syncType)) {
+            return R.ok(fundDataSyncService.submitLatestNavContinuation());
+        }
         if ("FULL_INIT".equalsIgnoreCase(syncType)
             || "ALL".equalsIgnoreCase(bo.getSyncScope())
             || "GLOBAL".equalsIgnoreCase(bo.getSyncScope())) {

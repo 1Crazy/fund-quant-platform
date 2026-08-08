@@ -57,6 +57,8 @@ make install
 make dev
 ```
 
+本机服务以 IPv6 双栈监听，调用方统一使用 `http://localhost:8000`，不要写 `127.0.0.1`。
+
 接口文档：`http://localhost:8000/docs`
 
 ## 日常开发启动
@@ -92,7 +94,13 @@ docker compose up -d --build
 
 ```http
 GET /internal/v1/data/estimate/000001
+X-Quant-Config-Release-Version: <release-version>
+X-Quant-Config-Release-Checksum: <sha256-checksum>
+X-Fund-Estimate-Result-Cache-Seconds: <1-300>
+X-Fund-Estimate-Quote-Cache-Seconds: <1-300>
 ```
+
+估值请求必须同时携带已发布量化配置的精确版本和校验和。Java 在创建请求或任务时固定这两个值；Python 只加载该版本，不会回退到当前活动版本、最新版本或源码默认值。估值响应和持久化快照都保留相同的配置血缘。
 
 ### 股票实时行情
 
@@ -113,10 +121,12 @@ GET /internal/v1/data/stock/600519
     "estimateGrowthRate": 0.108,
     "previousNav": 1.234,
     "previousNavDate": "2026-07-18",
-    "estimateTime": "2026-07-19T10:30:00+08:00",
-    "source": "AKSHARE_HOLDING_ESTIMATE",
-    "holdingCoverageRate": 14.7,
+    "estimateTime": "2026-07-19T02:30:00Z",
+    "source": "FUND_DATA_CENTER_HOLDING_ESTIMATE",
+    "holdingCoverageRate": 71.7,
     "reportPeriod": "2026年2季度",
+    "configReleaseVersion": 1,
+    "configReleaseChecksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "contributions": []
   },
   "error": null,
@@ -150,6 +160,22 @@ GET /internal/v1/data/funds?keyword=有色&limit=50
 
 基金档案接口会返回基金经理、托管人、成立日期、最新规模、基金评级和业绩比较基准。历史净值接口同时返回单位净值、累计净值和日增长率；`days=250` 表示最近 250 个净值公布日，不是最近 250 个自然日，`days=0` 表示成立以来全部历史。
 
+### 量化配置兼容性复核
+
+完整的配置目录、结构演进、发布/回滚、权限、稳定错误码和故障恢复说明见 [量化配置中心运行手册](../doc/quant-config-center-runbook.md)。
+
+Java 在创建发布版本前调用下列内部接口，提交十个完整配置组及其精确的配置版本、规范化 JSON 校验和和发布校验和：
+
+```http
+POST /internal/v1/quant-config/validate
+```
+
+该接口只校验 Python 端是否支持所请求的结构版本，绝不写入 PostgreSQL。计算服务通过 `FUND_QUANT_CONFIG_READONLY_DSN` 使用只读 PostgreSQL 角色按 `(release_version, checksum)` 加载精确版本，并在同一只读连接池读取估值所需的共享 NAV 与披露持仓；不存在、版本不一致、校验和不一致或结构不支持时分别返回稳定的 `QUANT_CONFIG_*` 错误，绝不选择最新版本或源码默认值。
+
+部署时先创建 `fund_quant_reader` 角色，再依序执行 `fund-admin/script/sql/update/postgres/update_quant_config_center_v1.sql`、`fund-admin/script/sql/update/postgres/seed_quant_config_cross_market_v1.sql` 与 `fund-admin/script/sql/update/postgres/update_harden_realtime_fund_estimation_v1.sql`。迁移授予量化配置表和共享数据中心输入表的只读权限，并设置默认只读事务、5 秒查询超时和 10 个连接上限。
+
+首版 `cross-market-fund-v1` 的 D-011 参数已经确认，种子只写入十个不可自动发布的 `DRAFT` 配置版本。持有 `fund:config:publish` 权限的操作员必须先在 Java 管理端校验草稿，再让 Java 调用 Python 兼容性接口，最后创建原子发布版本。当前活动发布为立即生效的 release v3（`2026-08-08T16:57:38+08:00`），复用 release v2 的十个已校验配置版本及 checksum；发布会生成版本化校验和、审计记录和 Redis 投影。不得直接插入 `quant_config_release*` 表。
+
 ### 健康检查
 
 ```http
@@ -166,7 +192,7 @@ RuoYi 的 `dev` 配置已经默认指向本机 `8000`，正常情况下启动 Py
 export FUND_ESTIMATE_PROVIDER_URL='http://localhost:8000/internal/v1/data/estimate/{code}'
 ```
 
-然后从 `fund-admin/ruoyi-admin` 启动 Java。Java 会解析 `success/data/error/requestId` 包装，校验估值结果，再写 Redis 和 `fund_estimate` 快照。
+然后从 `fund-admin/ruoyi-admin` 启动 Java。Java 会解析 `success/data/error/requestId` 包装，并校验请求固定的发布版本和校验和与响应完全一致，再写入同一配置血缘的 Redis 和 `fund_estimate` 快照。
 
 Java 上游读取超时默认设置为 30 秒，用于覆盖 AkShare 冷缓存的首次加载；Python 缓存命中后通常无需等待完整超时。可通过 `fund.estimate.provider-read-timeout` 调整。
 
@@ -216,7 +242,7 @@ POST /internal/v1/data/sync/holdings/000001?reportDate=2026-06-30&batchId=...
 估算净值 = 最近单位净值 × (1 + 估值涨跌幅（%） / 100)
 ```
 
-基金公告通常只披露前十大股票持仓，因此响应额外返回 `holdingCoverageRate`。第一阶段未覆盖债券、现金、港股、期货、申赎费用和基金经理盘中调仓，结果属于基于公开持仓的估算，不是基金公司官方净值。
+基金公告通常只披露前十大股票持仓，因此响应额外返回 `holdingCoverageRate`。D-011 首版要求公开股票持仓覆盖率至少为 60%、行情年龄不超过 90 秒；存储时间遵循 UTC，接口时间以 `Asia/Shanghai` 的显式偏移传输。当前实现未覆盖债券、现金、港股、期货、申赎费用和基金经理盘中调仓，结果属于基于公开持仓的估算，不是基金公司官方净值。完整上线、灰度、故障与指标说明见 [盘中基金估值运行手册](../doc/realtime-fund-estimation-runbook.md)。
 
 ## 测试
 

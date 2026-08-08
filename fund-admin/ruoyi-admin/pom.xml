@@ -156,4 +156,34 @@
         </plugins>
     </build>
 
+    <!--
+      Spring Boot 的 run Mojo 默认绑定到 validate。不能将其放在常规 build execution 中，
+      否则 mvn install 会意外启动并阻塞应用，make dev 的源码监听器就没有机会启动。
+    -->
+    <profiles>
+        <profile>
+            <id>hot-run</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.springframework.boot</groupId>
+                        <artifactId>spring-boot-maven-plugin</artifactId>
+                        <configuration>
+                            <!-- 本地开发优先加载工作区 classes，避免复用 ~/.m2 中已安装的旧基金模块。 -->
+                            <additionalClasspathElements>
+                                <additionalClasspathElement>${project.basedir}/../ruoyi-modules/ruoyi-fund/target/classes</additionalClasspathElement>
+                            </additionalClasspathElements>
+                            <excludes>
+                                <exclude>
+                                    <groupId>org.dromara</groupId>
+                                    <artifactId>ruoyi-fund</artifactId>
+                                </exclude>
+                            </excludes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
 </project>

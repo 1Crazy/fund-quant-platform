@@ -21,5 +21,8 @@ public interface FundSyncRunMapper extends BaseMapperPlus<FundSyncRun, FundSyncR
 
     List<FundSyncRunVo> selectRunning(@Param("dataset") String dataset, @Param("scopeType") String scopeType, @Param("scopeValue") String scopeValue);
 
+    /** 最近一次全局确认净值同步。 */
+    FundSyncRunVo selectLatestGlobalNavRun();
+
     FundSyncStatusSummaryVo selectLatestStatus(@Param("dataset") String dataset, @Param("scopeType") String scopeType, @Param("scopeValue") String scopeValue);
 }

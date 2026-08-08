@@ -35,8 +35,15 @@ make dev
 make dev
 ```
 
-两个目录的 `make dev` 都会回到 Maven 聚合工程，先增量安装最新 `ruoyi-fund`，再启动 `ruoyi-admin`。
-不要直接运行 `mvn spring-boot:run`：该命令只构建 `ruoyi-admin`，会直接复用 `~/.m2` 中可能过期的业务模块 Jar。
+两个目录的 `make dev` 都会回到 Maven 聚合工程，先增量安装最新 `ruoyi-fund`，再以本地热部署模式启动 `ruoyi-admin`。该模式会把 `ruoyi-fund/target/classes` 直接加入运行类路径，避免复用 `~/.m2` 中可能过期的业务模块 Jar。
+保存 `ruoyi-admin` 或 `ruoyi-fund` 的 Java、Mapper XML、YAML 或 properties 后，`make dev` 内置的本地轮询器会自动增量编译，Spring Boot DevTools 随后重载应用上下文；浏览器刷新即可验证，不需要手动停止和启动 Java 服务。
+
+不要直接运行 `mvn spring-boot:run`：它不会启用项目的 `hot-run` 类路径配置，可能直接复用 `~/.m2` 中旧的业务模块 Jar。若要显式使用热部署目标，执行：
+
+```bash
+cd fund-admin
+make dev-hot
+```
 
 日常启动不需要重复执行：
 
@@ -82,7 +89,7 @@ mvn install -Pdev -DskipTests
 make dev
 ```
 
-`make dev` 只会增量编译发生变化的模块；没有源码变化时不会进行完整重建。
+`make dev` 只会增量编译发生变化的模块；没有源码变化时不会进行完整重建。修改 Maven 依赖、POM、启动 JVM 参数或数据库迁移后，仍需结束当前进程并重新执行 `make dev`，这些变更不属于应用上下文热重载范围。
 
 如果本地没有启动 SnailJob 或 Spring Boot Admin，使用下面这个本地开发命令：
 

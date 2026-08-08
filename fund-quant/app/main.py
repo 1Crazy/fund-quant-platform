@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse, Response
 
 from app.api.dependencies import get_cache
 from app.api.v1.data import router as data_router
+from app.api.v1.quant_config import router as quant_config_router
 from app.core.config import get_settings
 from app.core.exceptions import FundQuantError
 from app.schemas.common import ApiEnvelope, ErrorDetail
@@ -89,3 +90,4 @@ def health(request: Request) -> ApiEnvelope[HealthData]:
 
 
 app.include_router(data_router)
+app.include_router(quant_config_router)

@@ -8,16 +8,20 @@ import org.dromara.common.mybatis.core.page.PageQuery;
 import org.dromara.common.mybatis.core.page.TableDataInfo;
 import org.dromara.common.redis.utils.RedisUtils;
 import org.dromara.fund.config.FundDataProperties;
+import org.dromara.fund.config.FundEstimateRuntimeSettings;
 import org.dromara.fund.client.FundDataProviderClient;
 import org.dromara.fund.constant.FundCacheConstants;
 import org.dromara.fund.domain.FundInfo;
 import org.dromara.fund.domain.bo.FundQueryBo;
 import org.dromara.fund.domain.dto.FundSyncStatusSummaryVo;
+import org.dromara.fund.domain.dto.QuantConfigTaskContext;
+import org.dromara.fund.domain.dto.QuantConfigReleaseReference;
 import org.dromara.fund.domain.vo.FundDetailVo;
 import org.dromara.fund.domain.vo.FundEstimateVo;
 import org.dromara.fund.domain.vo.FundHoldingVo;
 import org.dromara.fund.domain.vo.FundHoldingQuoteVo;
 import org.dromara.fund.domain.vo.FundListVo;
+import org.dromara.fund.domain.vo.FundNavPositionVo;
 import org.dromara.fund.domain.vo.FundNavPointVo;
 import org.dromara.fund.mapper.FundHoldingMapper;
 import org.dromara.fund.mapper.FundDataQualityIssueMapper;
@@ -25,11 +29,14 @@ import org.dromara.fund.mapper.FundInfoMapper;
 import org.dromara.fund.mapper.FundNavMapper;
 import org.dromara.fund.service.IFundDataSyncService;
 import org.dromara.fund.service.IFundEstimateService;
+import org.dromara.fund.service.IFundNavPositionService;
 import org.dromara.fund.service.IFundQueryService;
+import org.dromara.fund.service.QuantConfigTaskContextResolver;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -45,8 +52,11 @@ public class FundQueryServiceImpl implements IFundQueryService {
     private final FundDataQualityIssueMapper qualityIssueMapper;
     private final FundDataProviderClient providerClient;
     private final FundDataProperties properties;
+    private final FundEstimateRuntimeSettings estimateRuntimeSettings;
     private final IFundDataSyncService fundDataSyncService;
     private final IFundEstimateService estimateService;
+    private final IFundNavPositionService navPositionService;
+    private final QuantConfigTaskContextResolver quantConfigTaskContextResolver;
 
     @Override
     public TableDataInfo<FundListVo> queryPage(FundQueryBo bo, PageQuery pageQuery) {
@@ -61,19 +71,85 @@ public class FundQueryServiceImpl implements IFundQueryService {
             // 名称搜索先同步轻量基金目录，净值与完整档案在进入详情时按需加载。
             fundDataSyncService.syncCatalogMatches(fundName);
         }
-        Page<FundListVo> page = fundInfoMapper.selectFundPage(pageQuery.build(), bo);
+        QuantConfigTaskContext configContext = resolveActiveConfigOrNull();
+        if (bo.getNavPositionRegion() != null && !bo.getNavPositionRegion().isBlank()) {
+            bo.setNavPositionFundCodes(findCachedNavPositionFundCodes(bo.getNavPositionRegion(), configContext));
+        }
+        Page<FundListVo> page = fundInfoMapper.selectFundPage(
+            pageQuery.build(),
+            bo,
+            configContext == null ? null : configContext.getConfigReleaseVersion(),
+            configContext == null ? null : configContext.getConfigReleaseChecksum(),
+            estimateRuntimeSettings.getStaleAfter().toSeconds()
+        );
         for (FundListVo row : page.getRecords()) {
             // 分页 SQL 已一次性加载数据库最新估值；这里只用 Redis 热点值覆盖，避免逐行查库形成 N+1。
-            FundEstimateVo estimate = RedisUtils.getCacheObject(
-                FundCacheConstants.ESTIMATE_KEY_PREFIX + row.getFundCode());
+            String algorithmVersion = estimateAlgorithmVersion(configContext);
+            FundEstimateVo estimate = configContext == null || algorithmVersion == null ? null : RedisUtils.getCacheObject(
+                FundCacheConstants.estimateCacheKey(
+                    row.getFundCode(),
+                    algorithmVersion,
+                    configContext.getConfigReleaseVersion(),
+                    configContext.getConfigReleaseChecksum()
+                ));
             if (estimate != null) {
-                row.setEstimateNav(estimate.getEstimateNav());
-                row.setEstimateGrowthRate(estimate.getEstimateGrowthRate());
+                boolean normal = "NORMAL".equals(estimate.getSourceStatus()) && !estimate.isStale();
+                row.setEstimateNav(normal ? estimate.getEstimateNav() : null);
+                row.setEstimateGrowthRate(normal ? estimate.getEstimateGrowthRate() : null);
                 row.setEstimateTime(estimate.getEstimateTime());
                 row.setStale(estimate.isStale());
+                row.setEstimateSourceStatus(estimate.getSourceStatus());
+                row.setEstimateHoldingCoverageRate(estimate.getHoldingCoverageRate());
+                row.setEstimateQuoteCoverageRate(estimate.getQuoteCoverageRate());
+                row.setEstimateMissingQuoteCount(estimate.getMissingQuoteCount());
+                row.setEstimateStatusReason(estimate.getStatusReason());
+            }
+            // 历史位置仅复用已计算的热点缓存；分页查询绝不逐行回源 fund-quant。
+            FundNavPositionVo navPosition = navPositionService.queryCached(row.getFundCode(), configContext);
+            if (navPosition != null) {
+                row.setNavPositionStatus(navPosition.getStatus());
+                row.setNavPositionScore(navPosition.getNavPositionScore());
+                row.setNavPositionRegion(navPosition.getNavPositionRegion());
+                row.setNavPositionTradeDate(navPosition.getTradeDate());
+                row.setNavPositionCalculatedAt(navPosition.getCalculatedAt() == null
+                    ? null : navPosition.getCalculatedAt().toLocalDateTime());
             }
         }
         return TableDataInfo.build(page);
+    }
+
+    private String estimateAlgorithmVersion(QuantConfigTaskContext context) {
+        if (context == null || context.getGroups() == null) {
+            return null;
+        }
+        QuantConfigReleaseReference.GroupReference estimateGroup = context.getGroups().get("ESTIMATE");
+        return estimateGroup == null || estimateGroup.getSchemaVersion() == null
+            ? null : "holding-estimate-v" + estimateGroup.getSchemaVersion();
+    }
+
+    /** 历史位置由当前发布版本的 Redis 投影提供，筛选时只扫描该版本的缓存键。 */
+    private List<String> findCachedNavPositionFundCodes(String region, QuantConfigTaskContext context) {
+        String algorithmVersion = navPositionAlgorithmVersion(context);
+        if (algorithmVersion == null) {
+            return List.of();
+        }
+        String pattern = FundCacheConstants.NAV_POSITION_KEY_PREFIX + "*:" + algorithmVersion + ":"
+            + context.getConfigReleaseVersion() + ":" + context.getConfigReleaseChecksum();
+        Collection<String> keys = RedisUtils.keys(pattern);
+        return keys.stream()
+            .map(key -> RedisUtils.<FundNavPositionVo>getCacheObject(key))
+            .filter(position -> position != null && region.equals(position.getNavPositionRegion()))
+            .map(FundNavPositionVo::getFundCode)
+            .distinct()
+            .toList();
+    }
+
+    private String navPositionAlgorithmVersion(QuantConfigTaskContext context) {
+        if (context == null || context.getGroups() == null) {
+            return null;
+        }
+        QuantConfigReleaseReference.GroupReference group = context.getGroups().get("NAV_POSITION");
+        return group == null || group.getSchemaVersion() == null ? null : "nav-position-v" + group.getSchemaVersion();
     }
 
     @Override
@@ -82,8 +158,10 @@ public class FundQueryServiceImpl implements IFundQueryService {
         if (isExactFundCode(fundCode)) {
             fundDataSyncService.ensureAvailable(fundCode, navPeriod.syncDays());
         }
-        // 详情载荷包含按周期裁剪的 NAV 序列，缓存键必须区分 period，避免不同区间互相覆盖。
-        String detailCacheKey = FundCacheConstants.INFO_KEY_PREFIX + fundCode + ":detail:" + period;
+        QuantConfigTaskContext configContext = resolveActiveConfigOrNull();
+        // 详情载荷包含按周期裁剪的 NAV 序列，且必须区分量化发布版本，避免旧估值留在新版本详情中。
+        String detailCacheKey = FundCacheConstants.INFO_KEY_PREFIX + fundCode + ":detail:" + period + ":"
+            + detailConfigCacheSuffix(configContext);
         FundDetailVo cached = RedisUtils.getCacheObject(detailCacheKey);
         if (cached != null) {
             return cached;
@@ -140,7 +218,7 @@ public class FundQueryServiceImpl implements IFundQueryService {
             detail.setSyncStatus(syncStatus.getState());
             detail.setSyncFetchBatchId(syncStatus.getFetchBatchId());
         }
-        detail.setEstimate(estimateService.queryCachedOrSnapshot(fundCode));
+        detail.setEstimate(configContext == null ? null : estimateService.queryCachedOrSnapshot(fundCode, configContext));
         detail.setNavSeries(series);
         detail.setHoldings(holdings);
         detail.setQualityIssues(qualityIssueMapper.selectRecentByFundCode(fundCode));
@@ -151,11 +229,8 @@ public class FundQueryServiceImpl implements IFundQueryService {
         detail.setHoldingCoverageRate(holdingCoverageRate);
         if (holdings.isEmpty()) {
             detail.setHoldingNote("最新报告期未披露直接股票持仓；披露持仓不是实时仓位。");
-        } else if (holdingCoverageRate.compareTo(new BigDecimal("10")) < 0) {
-            // ETF 联接基金常将主要资产归入“其他”，没有目标 ETF 代码时不能用极少量直接股票伪造基金估值。
-            detail.setHoldingNote("直接股票披露占比低于 10%；可刷新查看每只股票行情，但不据此生成基金盘中估值。");
         } else {
-            detail.setHoldingNote("持仓为最近公开报告期数据，不代表当前实时仓位。");
+            detail.setHoldingNote("持仓为最近公开报告期数据，不代表当前实时仓位；是否满足估值覆盖率由已发布量化配置决定。");
         }
         RedisUtils.setCacheObject(detailCacheKey, detail, propertiesInfoTtl());
         return detail;
@@ -193,6 +268,24 @@ public class FundQueryServiceImpl implements IFundQueryService {
 
     private String nullToDataset() {
         return "FUND_INFO";
+    }
+
+    private QuantConfigTaskContext resolveActiveConfigOrNull() {
+        try {
+            return quantConfigTaskContextResolver.pinActiveRelease();
+        } catch (ServiceException e) {
+            if ("QUANT_CONFIG_NOT_PUBLISHED".equals(e.getMessage())) {
+                return null;
+            }
+            throw e;
+        }
+    }
+
+    private String detailConfigCacheSuffix(QuantConfigTaskContext configContext) {
+        if (configContext == null) {
+            return "no-quant-config";
+        }
+        return configContext.getConfigReleaseVersion() + ":" + configContext.getConfigReleaseChecksum();
     }
 
     private String normalizeFundCode(String fundCode) {

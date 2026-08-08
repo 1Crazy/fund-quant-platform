@@ -1,10 +1,17 @@
+import asyncio
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, Path, Query, Request
+from fastapi import APIRouter, Body, Depends, Header, Path, Query, Request
 from starlette.concurrency import run_in_threadpool
 
-from app.api.dependencies import get_estimate_service, get_fund_data_service
+from app.api.dependencies import (
+    get_estimate_service,
+    get_fund_data_service,
+    get_nav_position_service,
+)
+from app.core.config import get_settings
+from app.core.exceptions import UpstreamDataError
 from app.schemas.common import ApiEnvelope
 from app.schemas.data_center import (
     CatalogSyncRequest,
@@ -17,8 +24,10 @@ from app.schemas.data_center import (
 )
 from app.schemas.estimate import EstimateData, HoldingRealtimeQuote
 from app.schemas.market import FundHolding, FundInfo, FundNavPoint, StockQuote
+from app.schemas.nav_position import NavPositionData
 from app.services.estimate_service import EstimateService
 from app.services.fund_data_service import FundDataService
+from app.services.nav_position_service import NavPositionService
 
 router = APIRouter(prefix="/internal/v1/data", tags=["内部基金数据"])
 FundCode = Annotated[str, Path(pattern=r"^\d{6}$", description="六位基金代码")]
@@ -43,9 +52,57 @@ async def get_stock(
 async def get_estimate(
     request: Request,
     code: FundCode,
+    config_release_version: Annotated[
+        int,
+        Header(alias="X-Quant-Config-Release-Version", ge=1),
+    ],
+    config_release_checksum: Annotated[
+        str,
+        Header(alias="X-Quant-Config-Release-Checksum", pattern=r"^[0-9a-f]{64}$"),
+    ],
+    result_cache_seconds: Annotated[
+        int,
+        Header(alias="X-Fund-Estimate-Result-Cache-Seconds", ge=1, le=300),
+    ],
+    quote_cache_seconds: Annotated[
+        int,
+        Header(alias="X-Fund-Estimate-Quote-Cache-Seconds", ge=1, le=300),
+    ],
     service: Annotated[EstimateService, Depends(get_estimate_service)],
 ) -> ApiEnvelope[EstimateData]:
-    data = await run_in_threadpool(service.estimate, code)
+    data = await run_in_threadpool(
+        service.estimate,
+        code,
+        config_release_version,
+        config_release_checksum,
+        result_cache_seconds,
+        quote_cache_seconds,
+    )
+    return ApiEnvelope(success=True, data=data, requestId=request.state.request_id)
+
+
+@router.get("/nav-position/{code}", response_model=ApiEnvelope[NavPositionData])
+async def get_nav_position(
+    request: Request,
+    code: FundCode,
+    config_release_version: Annotated[
+        int,
+        Header(alias="X-Quant-Config-Release-Version", ge=1),
+    ],
+    config_release_checksum: Annotated[
+        str,
+        Header(alias="X-Quant-Config-Release-Checksum", pattern=r"^[0-9a-f]{64}$"),
+    ],
+    service: Annotated[NavPositionService, Depends(get_nav_position_service)],
+    trade_date: Annotated[date | None, Query(alias="tradeDate")] = None,
+) -> ApiEnvelope[NavPositionData]:
+    data = await run_in_threadpool(
+        service.calculate,
+        code,
+        config_release_version,
+        config_release_checksum,
+        trade_date,
+    )
     return ApiEnvelope(success=True, data=data, requestId=request.state.request_id)
 
 
@@ -150,7 +207,22 @@ async def sync_nav(
     batch_id: Annotated[str | None, Query(alias="batchId")] = None,
     scope: ProviderScope | None = Body(default=None),
 ) -> ApiEnvelope[SyncEnvelope[FundNavRecord]]:
-    data = await run_in_threadpool(service.sync_nav, code, start_date, end_date, scope, batch_id)
+    timeout_seconds = get_settings().sync_nav_timeout_seconds
+    try:
+        # AkShare 内部调用不总能传递 requests 超时。端点须先返回，避免单个基金阻塞 Java 全局游标。
+        data = await asyncio.wait_for(
+            run_in_threadpool(service.sync_nav, code, start_date, end_date, scope, batch_id),
+            timeout=timeout_seconds,
+        )
+    except TimeoutError as error:
+        raise UpstreamDataError(
+            f"基金 {code} 历史净值请求超过 {timeout_seconds} 秒",
+            code="UPSTREAM_TIMEOUT",
+            retryable=True,
+            dataset="FUND_NAV",
+            retry_after_seconds=get_settings().upstream_retry_after_seconds,
+            details={"fundCode": code, "timeoutSeconds": timeout_seconds},
+        ) from error
     return ApiEnvelope(success=True, data=data, requestId=request.state.request_id)
 
 

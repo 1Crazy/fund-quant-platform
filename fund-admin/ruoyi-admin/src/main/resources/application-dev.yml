@@ -23,10 +23,14 @@ api-decrypt:
 # 开发环境默认调用本机 fund-quant；如端口或部署地址不同可用环境变量覆盖。
 fund:
   data:
-    # fund-quant 默认仅监听 IPv4；显式使用回环 IPv4，避免 JVM 解析 localhost 到 ::1 后请求失败。
-    provider-base-url: ${FUND_DATA_PROVIDER_BASE_URL:http://127.0.0.1:8000}
+    # 本地联调统一使用 localhost；外部服务地址仍可由环境变量覆盖。
+    provider-base-url: ${FUND_DATA_PROVIDER_BASE_URL:http://localhost:8000}
   estimate:
-    provider-url: ${FUND_ESTIMATE_PROVIDER_URL:http://127.0.0.1:8000/internal/v1/data/estimate/{code}}
+    provider-url: ${FUND_ESTIMATE_PROVIDER_URL:http://localhost:8000/internal/v1/data/estimate/{code}}
+  nav-position:
+    provider-url: ${FUND_NAV_POSITION_PROVIDER_URL:http://localhost:8000/internal/v1/data/nav-position/{code}}
+  quant-config:
+    provider-validation-url: ${FUND_QUANT_CONFIG_PROVIDER_VALIDATION_URL:http://localhost:8000/internal/v1/quant-config/validate}
 
 --- # snail-job 配置
 snail-job:
@@ -36,7 +40,7 @@ snail-job:
   # SnailJob 接入验证令牌 详见 script/sql/ry_job.sql `sj_group_config` 表
   token: "SJ_cKqBTPzCsWA3VyuCfFoccmuIEGXjr5KT"
   server:
-    host: 127.0.0.1
+    host: localhost
     port: 17888
   # 命名空间UUID 详见 script/sql/ry_job.sql `sj_namespace`表`unique_id`字段
   namespace: ${spring.profiles.active}
@@ -216,7 +220,7 @@ justauth:
       redirect-uri: ${justauth.address}/social-callback?source=maxkey
     topiam:
       # topiam 服务器地址
-      server-url: http://127.0.0.1:1898/api/v1/authorize/y0q************spq***********8ol
+      server-url: http://localhost:1898/api/v1/authorize/y0q************spq***********8ol
       client-id: 449c4*********937************759
       client-secret: ac7***********1e0************28d
       redirect-uri: ${justauth.address}/social-callback?source=topiam

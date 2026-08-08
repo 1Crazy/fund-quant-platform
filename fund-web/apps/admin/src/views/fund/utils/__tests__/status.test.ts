@@ -2,9 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 import {
   datasetLabel,
+  estimateRefreshPermissions,
+  estimateStatusMeta,
   formatDuration,
   hasAnyFundPermission,
   manualSyncPermissions,
+  quantConfigGroupLabel,
+  quantConfigPublishPermissions,
+  quantConfigStatusMeta,
+  quantConfigValidatePermissions,
   qualityStatusMeta,
   syncStatusMeta,
   syncTypeLabel,
@@ -49,6 +55,32 @@ describe('fund data center status helpers', () => {
     });
   });
 
+  it('renders estimate availability separately from data quality states', () => {
+    expect(estimateStatusMeta('NORMAL')).toMatchObject({
+      label: '可用',
+      type: 'success',
+    });
+    expect(estimateStatusMeta('UNSUPPORTED')).toMatchObject({
+      label: '不可估值',
+      type: 'info',
+    });
+    expect(estimateStatusMeta('PARTIAL')).toMatchObject({
+      label: '部分覆盖',
+      type: 'warning',
+    });
+    expect(estimateStatusMeta('STALE')).toMatchObject({
+      label: '已过期',
+      type: 'warning',
+    });
+    expect(estimateStatusMeta('UPSTREAM_FAILED')).toMatchObject({
+      label: '上游失败',
+      type: 'danger',
+    });
+    expect(
+      hasAnyFundPermission(['fund:estimate:refresh'], estimateRefreshPermissions),
+    ).toBe(true);
+  });
+
   it('formats dataset, sync type and duration display values', () => {
     expect(datasetLabel('fund_nav')).toBe('确认净值');
     expect(syncTypeLabel('LAZY_LOAD')).toBe('按需懒加载');
@@ -65,5 +97,19 @@ describe('fund data center status helpers', () => {
     expect(
       hasAnyFundPermission(['fund:sync:trigger'], manualSyncPermissions),
     ).toBe(true);
+  });
+
+  it('keeps configuration permissions and status labels distinct by action', () => {
+    expect(quantConfigGroupLabel('RSI_MACD')).toBe('RSI / MACD');
+    expect(quantConfigStatusMeta('VALIDATED')).toMatchObject({
+      label: '已校验',
+      type: 'primary',
+    });
+    expect(
+      hasAnyFundPermission(['fund:config:validate'], quantConfigValidatePermissions),
+    ).toBe(true);
+    expect(
+      hasAnyFundPermission(['fund:config:validate'], quantConfigPublishPermissions),
+    ).toBe(false);
   });
 });

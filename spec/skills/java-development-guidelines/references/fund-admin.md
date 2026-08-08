@@ -15,7 +15,7 @@
 - 数据库结构变更写入 `fund-admin/script/sql/update/postgres/` 的正向迁移 SQL；项目不会自动执行 Flyway/Liquibase 迁移。
 - 修改 Mapper XML 后，确认运行时使用的资源不是旧的 `target/classes` 或 `~/.m2` JAR；仅在获得构建和启动验证授权后，重新构建并重启 Java 服务再判断结果。
 - PostgreSQL 参数必须有明确类型上下文。避免 `CONCAT(#{value}, ...)` 让 JDBC 参数推断失败；优先写 `#{value}::varchar || '...'`。
-- 本机 Java 调 Python 服务默认使用 `127.0.0.1`，不用 `localhost`，以避免 Python 仅监听 IPv4 时的 IPv6 解析差异。
+- 本机 Java 调 Python 服务统一使用 `localhost`；`fund-quant` 本地启动须监听 IPv6 双栈，以兼容 `localhost` 的 IPv4/IPv6 解析。来源：`AGENTS.md`、`fund-quant/Makefile`；核验：2026-08-08。
 - 新增 Controller 接口先检查相邻方法的 `@SaCheckPermission` 权限标识；不能遗漏操作权限，不能以请求参数中的 `userId`、`roleId`、`tenantId` 替代后端上下文判断。
 - 数据范围由项目已有数据权限能力在查询阶段处理，禁止 Service 查询全量数据后再用 Java 过滤。多租户表依赖 `PlusTenantLineHandler`；只有跨租户公共表才按现有约定加入 `tenant.excludes`。
 

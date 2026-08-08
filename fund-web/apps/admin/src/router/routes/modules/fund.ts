@@ -20,10 +20,10 @@ const routes: RouteRecordRaw[] = [
         path: 'list',
       },
       {
-        component: () => import('#/views/fund/detail/index.vue'),
+        redirect: (to) => ({ path: '/fund/list', query: to.query }),
         meta: {
           hideInMenu: true,
-          title: '基金详情',
+          title: '基金详情（已并入列表抽屉）',
         },
         name: 'FundDetail',
         path: 'detail',
@@ -31,12 +31,30 @@ const routes: RouteRecordRaw[] = [
       {
         component: () => import('#/views/fund/sync/index.vue'),
         meta: {
-          authority: ['*:*:*', 'fund:sync:list'],
-          icon: 'lucide:activity',
-          title: '同步管理',
+          icon: 'lucide:clipboard-list',
+          title: '同步记录',
         },
-        name: 'FundSync',
+        name: 'FundSyncRecords',
+        path: 'sync-records',
+      },
+      {
+        redirect: { path: '/fund/sync-records' },
+        meta: {
+          hideInMenu: true,
+          title: '同步记录',
+        },
+        name: 'FundSyncLegacy',
         path: 'sync',
+      },
+      {
+        component: () => import('#/views/fund/config/index.vue'),
+        meta: {
+          authority: ['superadmin'],
+          icon: 'lucide:sliders-horizontal',
+          title: '量化配置中心',
+        },
+        name: 'FundConfig',
+        path: 'config',
       },
     ],
   },

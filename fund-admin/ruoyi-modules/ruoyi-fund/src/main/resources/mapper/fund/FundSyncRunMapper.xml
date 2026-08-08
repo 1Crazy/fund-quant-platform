@@ -15,6 +15,8 @@
         scope_type,
         scope_value,
         CASE
+            WHEN scope_value = 'FULL_HISTORY' THEN 'FULL_HISTORY'
+            WHEN scope_value = 'CONTINUE_FROM_LATEST_NAV' THEN 'CONTINUE_FROM_LATEST_NAV'
             WHEN scope_value = 'incremental' THEN 'INCREMENTAL'
             WHEN scope_type = 'ALL' THEN 'FULL_INIT'
             WHEN scope_type = 'FUND_CODE' THEN 'LAZY_LOAD'
@@ -83,8 +85,10 @@
         </if>
         <if test="bo.syncType != null and bo.syncType != ''">
             AND (
-                (#{bo.syncType} = 'INCREMENTAL' AND scope_value = 'incremental')
-                OR (#{bo.syncType} = 'FULL_INIT' AND scope_type = 'ALL')
+                (#{bo.syncType} = 'FULL_HISTORY' AND scope_value = 'FULL_HISTORY')
+                OR (#{bo.syncType} = 'CONTINUE_FROM_LATEST_NAV' AND scope_value = 'CONTINUE_FROM_LATEST_NAV')
+                OR (#{bo.syncType} = 'INCREMENTAL' AND scope_value = 'incremental')
+                OR (#{bo.syncType} = 'FULL_INIT' AND scope_type = 'ALL' AND scope_value IS NULL)
                 OR (#{bo.syncType} = 'LAZY_LOAD' AND scope_type = 'FUND_CODE')
             )
         </if>
@@ -117,6 +121,15 @@
             AND scope_value = #{scopeValue}
         </if>
         ORDER BY started_at DESC
+    </select>
+
+    <select id="selectLatestGlobalNavRun" resultType="org.dromara.fund.domain.vo.FundSyncRunVo">
+        SELECT <include refid="runVoColumns"/>
+        FROM fund_sync_run
+        WHERE dataset = 'FUND_NAV'
+          AND scope_type = 'ALL'
+        ORDER BY started_at DESC, id DESC
+        LIMIT 1
     </select>
 
     <select id="selectLatestStatus" resultType="org.dromara.fund.domain.dto.FundSyncStatusSummaryVo">

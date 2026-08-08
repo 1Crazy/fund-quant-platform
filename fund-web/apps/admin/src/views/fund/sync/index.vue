@@ -1,5 +1,13 @@
 <script lang="ts" setup>
-import { computed, onMounted, reactive } from 'vue';
+import {
+  computed,
+  onActivated,
+  onBeforeUnmount,
+  onDeactivated,
+  onMounted,
+  reactive,
+  ref,
+} from 'vue';
 
 import { useAccess } from '@vben/access';
 import { Page } from '@vben/common-ui';
@@ -20,11 +28,14 @@ import {
   ElSelect,
   ElTable,
   ElTableColumn,
+  ElTabPane,
   ElTag,
+  ElTabs,
 } from 'element-plus';
 import { storeToRefs } from 'pinia';
 
 import type { FundApi } from '#/api/fund';
+import { getFundQualityIssuesApi, getFundSyncRunsApi } from '#/api/fund';
 import { useFundStore } from '#/store';
 
 import {
@@ -45,6 +56,7 @@ const {
   syncRunsTotal,
   syncStatus,
   syncTriggerLoading,
+  globalNavSyncStatus,
 } = storeToRefs(fundStore);
 
 const triggerForm = reactive<FundApi.FundManualSyncPayload>({
@@ -59,6 +71,40 @@ const triggerForm = reactive<FundApi.FundManualSyncPayload>({
 const canManualSync = computed(() => hasAccessByCodes(manualSyncPermissions));
 const activeRuns = computed(() => syncStatus.value?.activeRuns ?? []);
 const lastRun = computed(() => syncStatus.value?.lastRun);
+const hasRunningSync = computed(
+  () =>
+    globalNavSyncStatus.value?.state === 'RUNNING' ||
+    (syncStatus.value?.runningCount ?? 0) > 0,
+);
+const syncStartedAtRange = ref<string[]>([]);
+const failedRuns = ref<FundApi.FundSyncRun[]>([]);
+const failedRunsLoading = ref(false);
+const failedRunsTotal = ref(0);
+const failedRunQuery = reactive<FundApi.FundSyncRunParams>({
+  dataset: '',
+  fundCode: '',
+  pageNum: 1,
+  pageSize: 10,
+  status: 'FAILED',
+  syncType: '',
+});
+const qualityIssues = ref<FundApi.FundDataQualityIssue[]>([]);
+const qualityIssuesLoading = ref(false);
+const qualityIssuesTotal = ref(0);
+const qualityIssueQuery = reactive<FundApi.FundQualityIssueParams>({
+  dataset: '',
+  issueStatus: '',
+  pageNum: 1,
+  pageSize: 10,
+  reasonCode: '',
+});
+const globalNavProgress = computed(() => {
+  const status = globalNavSyncStatus.value;
+  if (!status?.totalFundCount) return 0;
+  return Math.min(100, Math.round((status.processedFundCount / status.totalFundCount) * 100));
+});
+let syncPollingTimer: ReturnType<typeof setInterval> | undefined;
+let syncPageActive = false;
 
 function progressPercent(row: FundApi.FundSyncRun) {
   if (!row.totalCount) return row.status === 'SUCCESS' ? 100 : 0;
@@ -74,11 +120,19 @@ function canRetry(row: FundApi.FundSyncRun) {
 
 async function search() {
   syncQuery.value.fundCode = syncQuery.value.fundCode?.trim() ?? '';
+  const [startedAtStart, startedAtEnd] = syncStartedAtRange.value;
+  syncQuery.value.startedAtStart = startedAtStart
+    ? `${startedAtStart}T00:00:00+08:00`
+    : '';
+  syncQuery.value.startedAtEnd = startedAtEnd
+    ? `${startedAtEnd}T23:59:59+08:00`
+    : '';
   await fundStore.fetchSyncRuns(true);
 }
 
 async function reset() {
   fundStore.resetSyncQuery();
+  syncStartedAtRange.value = [];
   await fundStore.fetchSyncRuns(true);
 }
 
@@ -97,28 +151,153 @@ async function triggerSync() {
     rangeEndDate: triggerForm.rangeEndDate || undefined,
     rangeStartDate: triggerForm.rangeStartDate || undefined,
   });
+  await refreshDashboard();
+  startSyncPolling();
   ElMessage.success(result.message || '同步任务已提交');
 }
 
 async function retry(row: FundApi.FundSyncRun) {
   const result = await fundStore.retrySync(row.id ?? row.runId);
+  await refreshDashboard();
+  startSyncPolling();
   ElMessage.success(result.message || '重试任务已提交');
 }
 
+async function loadFailedRuns(resetPage = false) {
+  if (resetPage) failedRunQuery.pageNum = 1;
+  failedRunsLoading.value = true;
+  try {
+    const result = await getFundSyncRunsApi({
+      ...failedRunQuery,
+      fundCode: failedRunQuery.fundCode?.trim(),
+      status: 'FAILED',
+    });
+    failedRuns.value = result.items;
+    failedRunsTotal.value = result.total;
+  } catch {
+    ElMessage.error('失败同步记录读取失败');
+  } finally {
+    failedRunsLoading.value = false;
+  }
+}
+
+function resetFailedRuns() {
+  Object.assign(failedRunQuery, {
+    dataset: '',
+    fundCode: '',
+    pageNum: 1,
+    pageSize: 10,
+    status: 'FAILED',
+    syncType: '',
+  });
+  void loadFailedRuns();
+}
+
+async function retryFailedRun(row: FundApi.FundSyncRun) {
+  await retry(row);
+  await loadFailedRuns();
+}
+
+async function loadQualityIssues(resetPage = false) {
+  if (resetPage) qualityIssueQuery.pageNum = 1;
+  qualityIssuesLoading.value = true;
+  try {
+    const result = await getFundQualityIssuesApi({
+      ...qualityIssueQuery,
+      reasonCode: qualityIssueQuery.reasonCode?.trim(),
+    });
+    qualityIssues.value = result.items;
+    qualityIssuesTotal.value = result.total;
+  } catch {
+    ElMessage.error('异常数据明细读取失败');
+  } finally {
+    qualityIssuesLoading.value = false;
+  }
+}
+
+function resetQualityIssues() {
+  Object.assign(qualityIssueQuery, {
+    dataset: '',
+    issueStatus: '',
+    pageNum: 1,
+    pageSize: 10,
+    reasonCode: '',
+  });
+  void loadQualityIssues();
+}
+
+function issueFundCode(row: FundApi.FundDataQualityIssue) {
+  return row.fundCode || row.recordKey?.match(/^\d{6}/)?.[0] || '--';
+}
+
+async function refreshDashboard() {
+  await Promise.all([
+    fundStore.fetchGlobalNavSyncStatus(),
+    fundStore.fetchSyncStatus(),
+    fundStore.fetchSyncRuns(),
+  ]);
+  if (!hasRunningSync.value) stopSyncPolling();
+}
+
+async function resumeGlobalNavSync() {
+  const result = await fundStore.resumeGlobalNavSync();
+  await refreshDashboard();
+  startSyncPolling();
+  ElMessage.success(result.message || '全量历史净值同步已继续执行');
+}
+
+function startSyncPolling() {
+  stopSyncPolling();
+  if (!syncPageActive || !hasRunningSync.value) return;
+  syncPollingTimer = setInterval(() => {
+    void refreshDashboard();
+  }, 4000);
+}
+
+function stopSyncPolling() {
+  if (syncPollingTimer) {
+    clearInterval(syncPollingTimer);
+    syncPollingTimer = undefined;
+  }
+}
+
+async function activateSyncPage() {
+  if (syncPageActive) return;
+  syncPageActive = true;
+  await Promise.all([refreshDashboard(), loadFailedRuns(), loadQualityIssues()]);
+  if (syncPageActive) startSyncPolling();
+}
+
+function deactivateSyncPage() {
+  syncPageActive = false;
+  stopSyncPolling();
+}
+
 onMounted(() => {
-  void fundStore.fetchSyncStatus();
-  void fundStore.fetchSyncRuns();
+  void activateSyncPage();
+});
+
+onActivated(() => {
+  void activateSyncPage();
+});
+
+onDeactivated(() => {
+  deactivateSyncPage();
+});
+
+onBeforeUnmount(() => {
+  deactivateSyncPage();
 });
 </script>
 
 <template>
   <Page auto-content-height>
-    <div class="fund-sync-page flex h-full min-h-0 flex-col gap-4">
+    <div class="fund-sync-page grid gap-4">
       <section class="sync-header">
         <div>
           <div class="sync-kicker">FUND DATA CENTER</div>
-          <h1>同步管理</h1>
-          <p>观测基金数据同步批次、进度计数、失败摘要，并在授权后触发单基金或范围同步。</p>
+          <h1>同步记录</h1>
+          <p>查询每次基金数据同步的成功、失败、重试与数据版本，并快速定位需要处理的异常批次。</p>
         </div>
         <div class="sync-health">
           <ElTag :type="lastRun ? syncStatusMeta(lastRun.status).type : 'info'" effect="plain">
@@ -128,9 +307,44 @@ onMounted(() => {
         </div>
       </section>
 
-      <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div class="order-2 grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <ElCard shadow="never">
-          <template #header><span class="panel-title">当前同步状态</span></template>
+          <template #header><span class="panel-title">全量历史净值同步</span></template>
+          <div v-if="globalNavSyncStatus" class="global-nav-status">
+            <div class="global-nav-status__summary">
+              <div>
+                <span>任务状态</span>
+                <strong>{{ syncStatusMeta(globalNavSyncStatus.state).label }}</strong>
+              </div>
+              <ElTag :type="syncStatusMeta(globalNavSyncStatus.state).type" effect="plain">
+                {{ globalNavSyncStatus.processedFundCount }}/{{ globalNavSyncStatus.totalFundCount }} 只基金
+              </ElTag>
+            </div>
+            <ElProgress
+              :percentage="globalNavProgress"
+              :status="globalNavSyncStatus.state === 'FAILED' ? 'exception' : undefined"
+              class="mt-3"
+            />
+            <div class="global-nav-status__meta">
+              <span>当前游标：{{ globalNavSyncStatus.cursorValue || '尚未开始逐只拉取' }}</span>
+              <span>成功 {{ formatCount(globalNavSyncStatus.successCount) }} / 失败 {{ formatCount(globalNavSyncStatus.failedCount) }}</span>
+            </div>
+            <p v-if="globalNavSyncStatus.errorMessage" class="global-nav-status__message">
+              {{ globalNavSyncStatus.errorMessage }}
+            </p>
+            <ElButton
+              v-if="globalNavSyncStatus.resumable && canManualSync"
+              :loading="syncTriggerLoading"
+              link
+              type="primary"
+              @click="resumeGlobalNavSync"
+            >
+              <RotateCw class="mr-1 size-4" />继续同步
+            </ElButton>
+          </div>
+          <ElEmpty v-else description="正在读取全量历史同步状态" />
+          <div class="my-4 border-t border-slate-200" />
+          <span class="panel-title">其他同步状态</span>
           <div class="grid gap-3 md:grid-cols-4">
             <div class="metric-card">
               <span>运行中</span>
@@ -211,11 +425,11 @@ onMounted(() => {
         </ElCard>
       </div>
 
-      <ElCard class="min-h-0 flex-1" shadow="never">
+      <ElCard class="order-3 min-h-0 flex-1" shadow="never">
         <template #header>
           <div class="flex flex-wrap items-center justify-between gap-3">
             <span class="panel-title">运行历史</span>
-            <div class="grid gap-2 lg:grid-cols-[140px_140px_140px_160px_auto]">
+            <div class="grid gap-2 lg:grid-cols-[140px_140px_140px_220px_160px_auto]">
               <ElSelect v-model="syncQuery.dataset" clearable placeholder="数据集">
                 <ElOption label="基金档案" value="FUND_INFO" />
                 <ElOption label="确认净值" value="FUND_NAV" />
@@ -224,18 +438,30 @@ onMounted(() => {
               <ElSelect v-model="syncQuery.status" clearable placeholder="状态">
                 <ElOption label="等待中" value="PENDING" />
                 <ElOption label="运行中" value="RUNNING" />
+                <ElOption label="已暂停" value="PAUSED" />
                 <ElOption label="成功" value="SUCCESS" />
                 <ElOption label="部分成功" value="PARTIAL_SUCCESS" />
                 <ElOption label="失败" value="FAILED" />
                 <ElOption label="已取消" value="CANCELLED" />
               </ElSelect>
               <ElSelect v-model="syncQuery.syncType" clearable placeholder="类型">
+                <ElOption label="全量历史同步" value="FULL_HISTORY" />
+                <ElOption label="按最新净值续拉" value="CONTINUE_FROM_LATEST_NAV" />
                 <ElOption label="全量初始化" value="FULL_INIT" />
                 <ElOption label="增量同步" value="INCREMENTAL" />
                 <ElOption label="按需懒加载" value="LAZY_LOAD" />
                 <ElOption label="历史 NAV 回填" value="NAV_BACKFILL" />
                 <ElOption label="持仓回填" value="HOLDING_BACKFILL" />
               </ElSelect>
+              <ElDatePicker
+                v-model="syncStartedAtRange"
+                clearable
+                end-placeholder="结束日期"
+                range-separator="至"
+                start-placeholder="开始日期"
+                type="daterange"
+                value-format="YYYY-MM-DD"
+              />
               <ElInput v-model="syncQuery.fundCode" clearable placeholder="基金代码" @keyup.enter="search" />
               <div class="flex gap-2">
                 <ElButton :loading="syncRunsLoading" type="primary" @click="search">
@@ -323,6 +549,166 @@ onMounted(() => {
           />
         </div>
       </ElCard>
+
+      <ElCard class="order-1" shadow="never">
+        <template #header>
+          <div>
+            <span class="panel-title">失败与异常数据</span>
+            <p class="mt-1 text-xs text-slate-500">
+              同步失败记录用于定位未拉取成功的基金；质量异常记录用于定位已拉取但被校验拒绝的具体数据。
+            </p>
+          </div>
+        </template>
+
+        <ElTabs>
+          <ElTabPane label="同步失败">
+            <div class="mb-4 flex flex-wrap gap-2">
+              <ElInput
+                v-model="failedRunQuery.fundCode"
+                clearable
+                class="w-44"
+                placeholder="基金代码"
+                @keyup.enter="loadFailedRuns(true)"
+              />
+              <ElSelect v-model="failedRunQuery.dataset" clearable class="w-36" placeholder="数据集">
+                <ElOption label="基金档案" value="FUND_INFO" />
+                <ElOption label="确认净值" value="FUND_NAV" />
+                <ElOption label="披露持仓" value="FUND_HOLDING" />
+              </ElSelect>
+              <ElSelect v-model="failedRunQuery.syncType" clearable class="w-44" placeholder="同步类型">
+                <ElOption label="全量历史同步" value="FULL_HISTORY" />
+                <ElOption label="全量初始化" value="FULL_INIT" />
+                <ElOption label="增量同步" value="INCREMENTAL" />
+                <ElOption label="按需懒加载" value="LAZY_LOAD" />
+                <ElOption label="历史 NAV 回填" value="NAV_BACKFILL" />
+              </ElSelect>
+              <ElButton :loading="failedRunsLoading" type="primary" @click="loadFailedRuns(true)">
+                <Search class="mr-1 size-4" />查询失败数据
+              </ElButton>
+              <ElButton @click="resetFailedRuns">
+                <RotateCw class="mr-1 size-4" />重置
+              </ElButton>
+            </div>
+
+            <ElTable v-loading="failedRunsLoading" :data="failedRuns" row-key="runId" stripe>
+              <ElTableColumn label="基金代码" min-width="110">
+                <template #default="{ row }">{{ row.fundCode || row.scopeValue || '--' }}</template>
+              </ElTableColumn>
+              <ElTableColumn label="数据集" min-width="110">
+                <template #default="{ row }">{{ datasetLabel(row.dataset) }}</template>
+              </ElTableColumn>
+              <ElTableColumn label="同步类型" min-width="130">
+                <template #default="{ row }">{{ syncTypeLabel(row.syncType) }}</template>
+              </ElTableColumn>
+              <ElTableColumn label="失败原因" min-width="300" show-overflow-tooltip>
+                <template #default="{ row }">
+                  {{ row.errorSummary || row.errorMessage || row.errorCode || '--' }}
+                </template>
+              </ElTableColumn>
+              <ElTableColumn label="重试次数" min-width="95">
+                <template #default="{ row }">{{ formatCount(row.retryCount) }}</template>
+              </ElTableColumn>
+              <ElTableColumn label="失败时间" min-width="180">
+                <template #default="{ row }">{{ row.finishedAt || row.startedAt || '--' }}</template>
+              </ElTableColumn>
+              <ElTableColumn fixed="right" label="操作" min-width="90">
+                <template #default="{ row }">
+                  <ElButton
+                    v-if="canRetry(row)"
+                    :loading="syncTriggerLoading"
+                    link
+                    type="primary"
+                    @click="retryFailedRun(row)"
+                  >
+                    重试
+                  </ElButton>
+                  <span v-else class="text-slate-400">--</span>
+                </template>
+              </ElTableColumn>
+              <template #empty>
+                <ElEmpty description="暂无失败的同步数据" />
+              </template>
+            </ElTable>
+            <div class="mt-4 flex justify-end">
+              <ElPagination
+                v-model:current-page="failedRunQuery.pageNum"
+                v-model:page-size="failedRunQuery.pageSize"
+                :page-sizes="[10, 20, 50, 100]"
+                :total="failedRunsTotal"
+                background
+                layout="total, sizes, prev, pager, next, jumper"
+                @current-change="() => loadFailedRuns()"
+                @size-change="() => loadFailedRuns(true)"
+              />
+            </div>
+          </ElTabPane>
+
+          <ElTabPane label="质量异常">
+            <div class="mb-4 flex flex-wrap gap-2">
+              <ElSelect v-model="qualityIssueQuery.dataset" clearable class="w-36" placeholder="数据集">
+                <ElOption label="基金档案" value="FUND_INFO" />
+                <ElOption label="确认净值" value="FUND_NAV" />
+                <ElOption label="披露持仓" value="FUND_HOLDING" />
+              </ElSelect>
+              <ElInput
+                v-model="qualityIssueQuery.reasonCode"
+                clearable
+                class="w-52"
+                placeholder="异常原因编码"
+                @keyup.enter="loadQualityIssues(true)"
+              />
+              <ElSelect v-model="qualityIssueQuery.issueStatus" clearable class="w-36" placeholder="处置状态">
+                <ElOption label="待处理" value="OPEN" />
+                <ElOption label="已忽略" value="IGNORED" />
+                <ElOption label="已解决" value="RESOLVED" />
+              </ElSelect>
+              <ElButton :loading="qualityIssuesLoading" type="primary" @click="loadQualityIssues(true)">
+                <Search class="mr-1 size-4" />查询异常数据
+              </ElButton>
+              <ElButton @click="resetQualityIssues">
+                <RotateCw class="mr-1 size-4" />重置
+              </ElButton>
+            </div>
+
+            <ElTable v-loading="qualityIssuesLoading" :data="qualityIssues" row-key="recordKey" stripe>
+              <ElTableColumn label="基金代码" min-width="110">
+                <template #default="{ row }">{{ issueFundCode(row) }}</template>
+              </ElTableColumn>
+              <ElTableColumn label="记录键" min-width="210" prop="recordKey" show-overflow-tooltip />
+              <ElTableColumn label="数据集" min-width="110">
+                <template #default="{ row }">{{ datasetLabel(row.dataset) }}</template>
+              </ElTableColumn>
+              <ElTableColumn label="异常原因" min-width="180">
+                <template #default="{ row }">{{ row.reasonCode || '--' }}</template>
+              </ElTableColumn>
+              <ElTableColumn label="原始数据摘要" min-width="300" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.reasonMessage || row.rawSummary || '--' }}</template>
+              </ElTableColumn>
+              <ElTableColumn label="处置状态" min-width="110">
+                <template #default="{ row }">{{ row.issueStatus || '待处理' }}</template>
+              </ElTableColumn>
+              <ElTableColumn label="发现时间" min-width="180">
+                <template #default="{ row }">{{ row.detectedAt || row.discoveredAt || '--' }}</template>
+              </ElTableColumn>
+              <template #empty>
+                <ElEmpty description="暂无被校验拒绝的数据" />
+              </template>
+            </ElTable>
+            <div class="mt-4 flex justify-end">
+              <ElPagination
+                v-model:current-page="qualityIssueQuery.pageNum"
+                v-model:page-size="qualityIssueQuery.pageSize"
+                :page-sizes="[10, 20, 50, 100]"
+                :total="qualityIssuesTotal"
+                background
+                layout="total, sizes, prev, pager, next, jumper"
+                @current-change="() => loadQualityIssues()"
+                @size-change="() => loadQualityIssues(true)"
+              />
+            </div>
+          </ElTabPane>
+        </ElTabs>
+      </ElCard>
     </div>
   </Page>
 </template>
@@ -355,6 +741,38 @@ onMounted(() => {
 
 .sync-header p {
   color: #64748b;
+  margin: 0;
+}
+
+.global-nav-status {
+  display: grid;
+  gap: 10px;
+}
+
+.global-nav-status__summary,
+.global-nav-status__meta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  justify-content: space-between;
+}
+
+.global-nav-status__summary span,
+.global-nav-status__meta,
+.global-nav-status__message {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.global-nav-status__summary strong {
+  color: var(--fund-ink);
+  display: block;
+  font-size: 20px;
+  margin-top: 2px;
+}
+
+.global-nav-status__message {
   margin: 0;
 }
 

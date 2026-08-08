@@ -43,6 +43,17 @@ public class FundListVo implements Serializable {
     private BigDecimal estimateNav;
     private BigDecimal estimateGrowthRate;
     private LocalDateTime estimateTime;
+    private String estimateSourceStatus;
+    private BigDecimal estimateHoldingCoverageRate;
+    private BigDecimal estimateQuoteCoverageRate;
+    private Integer estimateMissingQuoteCount;
+    private String estimateStatusReason;
+    /** 当前量化发布版本下已缓存的历史 NAV 位置；列表不会逐行触发计算。 */
+    private String navPositionStatus;
+    private BigDecimal navPositionScore;
+    private String navPositionRegion;
+    private LocalDate navPositionTradeDate;
+    private LocalDateTime navPositionCalculatedAt;
     @JsonProperty("isStale")
     private boolean stale;
 }

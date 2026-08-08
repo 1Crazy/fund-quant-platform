@@ -3,6 +3,7 @@ package org.dromara.fund.controller;
 import cn.dev33.satoken.annotation.SaCheckPermission;
 import org.dromara.fund.domain.bo.FundManualSyncBo;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 
@@ -13,6 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * 控制器路由和权限契约。
  */
+@Tag("dev")
 final class FundControllerContractTest {
 
     @Test
@@ -31,10 +33,46 @@ final class FundControllerContractTest {
     void manualSyncShouldValidateFundCodeRangeAndStatusResponse() {
         Method trigger = method("trigger", FundManualSyncBo.class);
         Method retry = method("retry", Long.class);
+        Method pause = method("pauseGlobalNavSync");
+        Method resume = method("resumeGlobalNavSync");
 
         assertTrue(hasPermission(trigger, "fund:sync:trigger"));
         assertTrue(hasPermission(retry, "fund:sync:retry"));
         assertTrue(retry.isAnnotationPresent(PostMapping.class));
+        assertTrue(hasPermission(pause, "fund:sync:trigger"));
+        assertTrue(hasPath(pause.getAnnotation(PostMapping.class).value(), "/sync/global-nav/pause"));
+        assertTrue(hasPermission(resume, "fund:sync:trigger"));
+        assertTrue(hasPath(resume.getAnnotation(PostMapping.class).value(), "/sync/global-nav/resume"));
+    }
+
+    @Test
+    void estimateRefreshAndOperationsStatusMustHaveDedicatedPermissions() {
+        Method refresh = method("refreshEstimate", String.class);
+        Method status = method("estimateStatus");
+
+        assertTrue(hasPermission(refresh, "fund:estimate:refresh"));
+        assertTrue(refresh.isAnnotationPresent(PostMapping.class));
+        assertTrue(hasPermission(status, "fund:estimate:monitor"));
+        assertTrue(hasPath(status.getAnnotation(GetMapping.class).value(), "/estimate/status"));
+    }
+
+    @Test
+    void navPositionShouldRemainAReadOnlyFundQuery() {
+        Method valuation = method("valuation", String.class);
+
+        assertTrue(hasPermission(valuation, "fund:info:query"));
+        assertTrue(hasPath(valuation.getAnnotation(GetMapping.class).value(), "/valuation/{code}"));
+    }
+
+    @Test
+    void navPositionBatchShouldExposeDedicatedTriggerAndStatusRoutes() {
+        Method refresh = method("refreshAllNavPositions");
+        Method status = method("navPositionBatchStatus");
+
+        assertTrue(hasPermission(refresh, "fund:estimate:refresh"));
+        assertTrue(hasPath(refresh.getAnnotation(PostMapping.class).value(), "/valuation/batch/refresh"));
+        assertTrue(hasPermission(status, "fund:info:query"));
+        assertTrue(hasPath(status.getAnnotation(GetMapping.class).value(), "/valuation/batch/status"));
     }
 
     private Method method(String name, Class<?>... parameterTypes) {

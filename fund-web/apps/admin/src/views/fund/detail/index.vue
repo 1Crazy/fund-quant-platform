@@ -1,10 +1,8 @@
 <script lang="ts" setup>
-import { computed, onMounted, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { computed, ref, watch } from 'vue';
 
 import { useAccess } from '@vben/access';
-import { Page } from '@vben/common-ui';
-import { ArrowLeft, RotateCw } from '@vben/icons';
+import { RotateCw } from '@vben/icons';
 
 import {
   ElAlert,
@@ -29,16 +27,28 @@ import { useFundStore } from '#/store';
 import NavChart from '../components/nav-chart.vue';
 import {
   datasetLabel,
+  estimateRefreshPermissions,
+  estimateStatusMeta,
   manualSyncPermissions,
+  navPositionRegionMeta,
   qualityStatusMeta,
   syncStatusMeta,
 } from '../utils/status';
 
-const route = useRoute();
-const router = useRouter();
+const props = withDefaults(
+  defineProps<{
+    active?: boolean;
+    code?: string;
+  }>(),
+  {
+    active: false,
+    code: '',
+  },
+);
 const { hasAccessByCodes } = useAccess();
 const fundStore = useFundStore();
-const { detail, detailLoading, syncTriggerLoading } = storeToRefs(fundStore);
+const { detail, detailLoading, navPositionLoading, syncTriggerLoading } =
+  storeToRefs(fundStore);
 const period = ref<FundApi.NavPeriod>('3m');
 const periodOptions: Array<{ label: string; value: FundApi.NavPeriod }> = [
   { label: '近1月', value: '1m' },
@@ -54,8 +64,13 @@ const holdingQuotes = ref<FundApi.FundHoldingQuote[]>([]);
 const historyPage = ref(1);
 const historyPageSize = ref(20);
 
-const code = computed(() => String(route.query.code ?? '').trim());
+const code = computed(() => props.code.trim());
+const isCurrentDetail = computed(() => detail.value?.fundCode === code.value);
 const estimate = computed(() => detail.value?.estimate);
+const navPosition = computed(() => detail.value?.navPosition);
+const navPositionReason = computed(
+  () => navPosition.value?.reasons?.[0]?.message,
+);
 const estimateContributions = computed(
   () => estimate.value?.contributions ?? [],
 );
@@ -72,6 +87,11 @@ const latestQuoteTime = computed(
     estimateContributions.value.map((item) => item.quoteTime).find(Boolean),
 );
 const estimateTime = computed(() => {
+  if (estimate.value?.sourceStatus && estimate.value.sourceStatus !== 'NORMAL') {
+    return estimate.value.statusReason
+      ? `${estimateStatusMeta(estimate.value.sourceStatus).label}：${estimate.value.statusReason}`
+      : estimateStatusMeta(estimate.value.sourceStatus).label;
+  }
   if (estimate.value?.isStale) {
     return estimate.value.estimateTime
       ? `最新行情获取失败，已隐藏 ${estimate.value.estimateTime} 的过期估值`
@@ -79,7 +99,7 @@ const estimateTime = computed(() => {
   }
   if (estimate.value?.estimateTime) return estimate.value.estimateTime;
   const coverage = detail.value?.holdingCoverageRate;
-  return coverage != null && coverage < 10
+  return coverage != null
     ? `暂无盘中估值（公开持仓覆盖 ${coverage.toFixed(2)}%）`
     : '暂无盘中估值';
 });
@@ -108,6 +128,9 @@ const latestHoldingReportDate = computed(
 );
 const qualityIssues = computed(() => detail.value?.qualityIssues ?? []);
 const canManualSync = computed(() => hasAccessByCodes(manualSyncPermissions));
+const canRefreshEstimate = computed(() =>
+  hasAccessByCodes(estimateRefreshPermissions),
+);
 
 function nav(value?: number) {
   return value == null ? '--' : value.toFixed(4);
@@ -116,6 +139,10 @@ function nav(value?: number) {
 function formatGrowth(value?: number) {
   if (value == null) return '--';
   return `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
+}
+
+function formatPercent(value?: number) {
+  return value == null ? '--' : `${value.toFixed(2)}%`;
 }
 
 function holdingChangePercent(stockCode: string) {
@@ -135,15 +162,20 @@ function holdingQuoteTime(stockCode: string) {
 async function load() {
   if (!code.value) return;
   await fundStore.fetchDetail(code.value, period.value);
+  await fundStore.fetchNavPosition(code.value).catch(() => undefined);
 }
 
 async function refreshEstimate() {
-  if (!code.value) return;
+  if (!code.value || !canRefreshEstimate.value) return;
   estimateLoading.value = true;
   const quotesPromise = getFundHoldingQuotesApi(code.value);
   try {
     const value = await fundStore.refreshEstimate(code.value);
-    if (value.isStale) {
+    if (value.sourceStatus !== 'NORMAL') {
+      ElMessage.warning(
+        value.statusReason || estimateStatusMeta(value.sourceStatus).label,
+      );
+    } else if (value.isStale) {
       ElMessage.warning('最新行情未获取成功，页面未使用过期估值');
     } else {
       ElMessage.success('估值和持仓实时行情已刷新');
@@ -167,42 +199,50 @@ async function refreshDataCenter() {
   ElMessage.success(result.message || '数据同步已提交');
 }
 
-onMounted(load);
 watch(period, () => {
   historyPage.value = 1;
-  void load();
+  if (props.active) {
+    void load();
+  }
 });
-watch(code, load);
+watch(
+  [() => props.active, code],
+  ([active, nextCode]) => {
+    if (!active || !nextCode) return;
+    historyPage.value = 1;
+    holdingQuotes.value = [];
+    void load();
+  },
+  { immediate: true },
+);
 </script>
 
 <template>
-  <Page>
-    <div class="fund-detail-page">
-      <div class="mb-4 flex items-center justify-between gap-3">
-        <ElButton text @click="router.push('/fund/list')">
-          <ArrowLeft class="mr-1 size-4" />返回基金列表
-        </ElButton>
-        <div class="flex gap-2">
-          <ElButton
-            v-if="canManualSync"
-            :loading="syncTriggerLoading"
-            type="primary"
-            @click="refreshDataCenter"
-          >
-            <RotateCw class="mr-1 size-4" />刷新数据
-          </ElButton>
-          <ElButton :loading="estimateLoading" @click="refreshEstimate">
-            <RotateCw class="mr-1 size-4" />刷新估值
-          </ElButton>
-        </div>
-      </div>
+  <div class="fund-detail-panel">
+    <div class="detail-toolbar">
+      <ElButton
+        v-if="canManualSync"
+        :loading="syncTriggerLoading"
+        type="primary"
+        @click="refreshDataCenter"
+      >
+        <RotateCw class="mr-1 size-4" />刷新数据
+      </ElButton>
+      <ElButton
+        v-if="canRefreshEstimate"
+        :loading="estimateLoading"
+        @click="refreshEstimate"
+      >
+        <RotateCw class="mr-1 size-4" />刷新估值
+      </ElButton>
+    </div>
 
-      <ElSkeleton v-if="detailLoading && !detail" :rows="8" animated />
-      <ElEmpty
-        v-else-if="!code || !detail"
-        description="请选择基金后查看详情"
-      />
-      <template v-else>
+    <ElSkeleton v-if="detailLoading && !isCurrentDetail" :rows="8" animated />
+    <ElEmpty
+      v-else-if="!code || !isCurrentDetail"
+      description="请选择基金后查看详情"
+    />
+    <template v-else>
         <section class="fund-identity">
           <div class="min-w-0">
             <div class="fund-code">{{ detail.fundCode }}</div>
@@ -226,12 +266,26 @@ watch(code, load);
                 最近同步：{{ syncStatusMeta(detail.syncStatus).label }}
               </ElTag>
               <ElTag v-if="estimate?.isStale" type="warning">估值已过期</ElTag>
+              <ElTag
+                v-if="estimate?.sourceStatus"
+                :type="estimateStatusMeta(estimate.sourceStatus).type"
+                effect="plain"
+              >
+                估值：{{ estimateStatusMeta(estimate.sourceStatus).label }}
+              </ElTag>
+              <ElTag
+                v-if="navPosition?.navPositionRegion"
+                :type="navPositionRegionMeta(navPosition.navPositionRegion).type"
+                effect="plain"
+              >
+                历史位置：{{ navPositionRegionMeta(navPosition.navPositionRegion).label }}
+              </ElTag>
             </div>
           </div>
           <div class="valuation-block">
             <div class="valuation-label">盘中估值</div>
             <div class="valuation-number">
-              {{ nav(estimate?.isStale ? undefined : estimate?.estimateNav) }}
+              {{ nav(estimate?.isStale || estimate?.sourceStatus !== 'NORMAL' ? undefined : estimate?.estimateNav) }}
             </div>
             <div class="valuation-growth" :class="growthClass">
               {{
@@ -242,6 +296,10 @@ watch(code, load);
             </div>
             <div class="valuation-time">
               {{ estimateTime }}
+            </div>
+            <div v-if="estimate" class="valuation-meta">
+              <span>持仓覆盖 {{ estimate.holdingCoverageRate == null ? '--' : `${estimate.holdingCoverageRate.toFixed(2)}%` }}</span>
+              <span>行情覆盖 {{ estimate.quoteCoverageRate == null ? '--' : `${estimate.quoteCoverageRate.toFixed(2)}%` }}</span>
             </div>
           </div>
         </section>
@@ -279,6 +337,41 @@ watch(code, load);
             </ElCard>
             <ElCard shadow="never">
               <template #header
+                ><span class="panel-title">历史位置</span></template
+              >
+              <ElSkeleton v-if="navPositionLoading" :rows="2" animated />
+              <template v-else-if="navPosition">
+                <div class="flex flex-wrap items-center gap-2">
+                  <ElTag
+                    v-if="navPosition.navPositionRegion"
+                    :type="navPositionRegionMeta(navPosition.navPositionRegion).type"
+                    effect="plain"
+                  >
+                    {{ navPositionRegionMeta(navPosition.navPositionRegion).label }}
+                  </ElTag>
+                  <span class="position-score">
+                    {{ navPosition.navPositionScore == null ? '--' : `${navPosition.navPositionScore.toFixed(2)} 分` }}
+                  </span>
+                </div>
+                <div class="mt-2 text-sm text-slate-500">
+                  {{ navPosition.tradeDate || '--' }} · {{ navPosition.sampleCount ?? 0 }} 个确认净值日
+                </div>
+                <div class="mt-1 text-xs text-slate-500">
+                  历史净值分位 {{ formatPercent(navPosition.navPercentile) }} · 当前回撤 {{ formatPercent(navPosition.currentDrawdown) }}
+                </div>
+                <ElAlert
+                  v-if="navPosition.status !== 'NORMAL' && navPositionReason"
+                  class="mt-3"
+                  :closable="false"
+                  :title="navPositionReason"
+                  type="info"
+                  show-icon
+                />
+              </template>
+              <div v-else class="text-sm text-slate-500">历史位置暂不可用</div>
+            </ElCard>
+            <ElCard shadow="never">
+              <template #header
                 ><span class="panel-title">数据版本</span></template
               >
               <ElDescriptions :column="1" border>
@@ -295,7 +388,13 @@ watch(code, load);
                   detail.sourceUpdatedAt || '--'
                 }}</ElDescriptionsItem>
                 <ElDescriptionsItem label="持仓报告期">{{
-                  latestHoldingReportDate || '--'
+                  estimate?.holdingReportDate || latestHoldingReportDate || '--'
+                }}</ElDescriptionsItem>
+                <ElDescriptionsItem label="估值输入版本">{{
+                  estimate?.inputDataVersion || '--'
+                }}</ElDescriptionsItem>
+                <ElDescriptionsItem label="估值算法">{{
+                  estimate?.algorithmVersion || '--'
                 }}</ElDescriptionsItem>
               </ElDescriptions>
             </ElCard>
@@ -496,25 +595,31 @@ watch(code, load);
           历史净值与披露持仓来自公开数据源，仅用于数据展示；披露持仓不代表实时仓位，也不构成
           AI 建议或投资建议。
         </div>
-      </template>
-    </div>
-  </Page>
+    </template>
+  </div>
 </template>
 
 <style scoped>
-.fund-detail-page {
+.fund-detail-panel {
   color: #14213d;
+}
+
+.detail-toolbar {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-bottom: 16px;
 }
 
 .fund-identity {
   align-items: center;
-  background: linear-gradient(112deg, #f8fafc 0%, #eaf7f4 68%, #fff7ed 100%);
+  background: #fff;
   border: 1px solid rgb(148 163 184 / 24%);
   border-radius: 8px;
   display: flex;
   justify-content: space-between;
-  min-height: 190px;
-  padding: 28px 32px;
+  min-height: 156px;
+  padding: 24px;
 }
 
 .fund-code {
@@ -527,7 +632,7 @@ watch(code, load);
 
 .fund-identity h1 {
   font-family: 'Songti SC', 'Noto Serif CJK SC', serif;
-  font-size: 31px;
+  font-size: 26px;
   font-weight: 700;
   letter-spacing: 0;
   margin: 6px 0 0;
@@ -546,6 +651,15 @@ watch(code, load);
   font-size: 12px;
 }
 
+.valuation-meta {
+  color: #64748b;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 4px 12px;
+  margin-top: 8px;
+}
+
 .valuation-number,
 .official-nav {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -553,6 +667,13 @@ watch(code, load);
   font-weight: 700;
   letter-spacing: 0;
   line-height: 1.2;
+}
+
+.position-score {
+  color: #14213d;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 18px;
+  font-weight: 700;
 }
 
 .official-nav {

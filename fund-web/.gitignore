@@ -28,6 +28,7 @@ package-lock.json
 .env.local
 .env.*.local
 .eslintcache
+.playwright-cli
 
 logs
 *.log

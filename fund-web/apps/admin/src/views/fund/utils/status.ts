@@ -44,10 +44,28 @@ const qualityStatusMap: Record<string, StatusMeta> = {
 const syncStatusMap: Record<string, StatusMeta> = {
   CANCELLED: { label: '已取消', type: 'info' },
   FAILED: { label: '失败', type: 'danger' },
+  INTERRUPTED: { label: '已中断', type: 'warning' },
   PARTIAL_SUCCESS: { label: '部分成功', type: 'warning' },
+  PAUSED: { label: '已暂停', type: 'warning' },
   PENDING: { label: '等待中', type: 'info' },
   RUNNING: { label: '运行中', type: 'primary' },
   SUCCESS: { label: '成功', type: 'success' },
+};
+
+const estimateStatusMap: Record<string, StatusMeta> = {
+  FAILED: { label: '计算失败', type: 'danger' },
+  NORMAL: { label: '可用', type: 'success' },
+  PARTIAL: { label: '部分覆盖', type: 'warning' },
+  STALE: { label: '已过期', type: 'warning' },
+  UNSUPPORTED: { label: '不可估值', type: 'info' },
+  UPSTREAM_FAILED: { label: '上游失败', type: 'danger' },
+};
+
+const navPositionRegionMap: Record<string, StatusMeta> = {
+  HIGH_VALUATION: { label: '高位区域', type: 'warning' },
+  LOW_VALUATION: { label: '低位区域', type: 'success' },
+  NORMAL: { label: '正常区域', type: 'info' },
+  RISK: { label: '风险区域', type: 'danger' },
 };
 
 const datasetMap: Record<string, string> = {
@@ -61,6 +79,8 @@ const datasetMap: Record<string, string> = {
 };
 
 const syncTypeMap: Record<string, string> = {
+  CONTINUE_FROM_LATEST_NAV: '按最新净值续拉',
+  FULL_HISTORY: '全量历史同步',
   FULL_INIT: '全量初始化',
   HOLDING_BACKFILL: '持仓回填',
   INCREMENTAL: '增量同步',
@@ -72,6 +92,43 @@ export const manualSyncPermissions = [
   '*:*:*',
   'fund:sync:trigger',
   'fund:sync:manual',
+];
+export const estimateRefreshPermissions = ['*:*:*', 'fund:estimate:refresh'];
+
+const quantConfigStatusMap: Record<string, StatusMeta> = {
+  DRAFT: { label: '草稿', type: 'info' },
+  PUBLISHED: { label: '已发布', type: 'success' },
+  RETIRED: { label: '已停用', type: 'info' },
+  ROLLED_BACK: { label: '已回滚', type: 'warning' },
+  VALIDATED: { label: '已校验', type: 'primary' },
+};
+
+const quantConfigGroupMap: Record<string, string> = {
+  BACKTEST: '回测参数',
+  ESTIMATE: '盘中估值',
+  FACTOR: '多因子权重',
+  FUND_RISK: '基金风险',
+  GLOBAL_CONVENTIONS: '全局口径',
+  MOVING_AVERAGE: '均线参数',
+  NAV_POSITION: '历史位置',
+  PORTFOLIO_RISK: '组合风险',
+  RSI_MACD: 'RSI / MACD',
+  TREND: '趋势参数',
+};
+
+export const quantConfigReadPermissions = ['*:*:*', 'fund:config:list'];
+export const quantConfigEditPermissions = ['*:*:*', 'fund:config:edit'];
+export const quantConfigValidatePermissions = [
+  '*:*:*',
+  'fund:config:validate',
+];
+export const quantConfigPublishPermissions = [
+  '*:*:*',
+  'fund:config:publish',
+];
+export const quantConfigRollbackPermissions = [
+  '*:*:*',
+  'fund:config:rollback',
 ];
 
 export function qualityStatusMeta(status?: FundApi.FundQualityStatus) {
@@ -94,6 +151,28 @@ export function syncStatusMeta(status?: FundApi.FundSyncStatus) {
   );
 }
 
+export function estimateStatusMeta(status?: FundApi.FundEstimateSourceStatus) {
+  if (!status) return { label: '--', type: 'info' } satisfies StatusMeta;
+  return (
+    estimateStatusMap[status] ?? {
+      label: status,
+      type: 'info',
+    }
+  );
+}
+
+export function navPositionRegionMeta(
+  region?: FundApi.FundNavPositionRegion,
+) {
+  if (!region) return { label: '--', type: 'info' } satisfies StatusMeta;
+  return (
+    navPositionRegionMap[region] ?? {
+      label: region,
+      type: 'info',
+    }
+  );
+}
+
 export function datasetLabel(dataset?: FundApi.FundDataset) {
   if (!dataset) return '--';
   return datasetMap[dataset] ?? dataset;
@@ -102,6 +181,23 @@ export function datasetLabel(dataset?: FundApi.FundDataset) {
 export function syncTypeLabel(syncType?: FundApi.FundSyncType) {
   if (!syncType) return '--';
   return syncTypeMap[syncType] ?? syncType;
+}
+
+export function quantConfigGroupLabel(code?: FundApi.QuantConfigCode) {
+  if (!code) return '--';
+  return quantConfigGroupMap[code] ?? code;
+}
+
+export function quantConfigStatusMeta(
+  status?: FundApi.QuantConfigReleaseStatus | FundApi.QuantConfigStatus,
+) {
+  if (!status) return { label: '--', type: 'info' } satisfies StatusMeta;
+  return (
+    quantConfigStatusMap[status] ?? {
+      label: status,
+      type: 'info',
+    }
+  );
 }
 
 export function formatCount(value?: number) {

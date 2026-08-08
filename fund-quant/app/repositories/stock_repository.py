@@ -26,7 +26,12 @@ class StockRepository:
         self._cache = cache
         self._ttl = settings.market_cache_seconds
 
-    def get_quotes(self, stock_codes: list[str]) -> dict[str, StockQuote]:
+    def get_quotes(
+        self,
+        stock_codes: list[str],
+        *,
+        cache_seconds: int | None = None,
+    ) -> dict[str, StockQuote]:
         normalized_codes = sorted({self._normalize_code(code) for code in stock_codes})
         if not normalized_codes:
             return {}
@@ -34,8 +39,8 @@ class StockRepository:
         # 不下载全市场，也不会受雪球令牌失效影响。
         market = cache_aside(
             self._cache,
-            f"fund_quant:market:selected:{','.join(normalized_codes)}",
-            self._ttl,
+            f"fund_quant:market:selected:ttl:{cache_seconds or self._ttl}:{','.join(normalized_codes)}",
+            cache_seconds or self._ttl,
             lambda: self._load_selected_market(normalized_codes),
             lambda value: value,
             lambda value: value,

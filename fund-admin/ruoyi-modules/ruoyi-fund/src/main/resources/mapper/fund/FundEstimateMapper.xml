@@ -4,7 +4,7 @@
     "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="org.dromara.fund.mapper.FundEstimateMapper">
 
-    <select id="selectLatest" resultType="org.dromara.fund.domain.FundEstimate">
+    <select id="selectLatestForRelease" resultType="org.dromara.fund.domain.FundEstimate">
         SELECT id,
                fund_code,
                estimate_time,
@@ -14,6 +14,20 @@
                previous_nav_date,
                source,
                source_status,
+               status_reason,
+               holding_coverage_rate,
+               quote_coverage_rate,
+               missing_quote_count,
+               quote_time,
+               holding_report_date,
+               holding_report_period,
+               input_data_version,
+               algorithm_version,
+               trade_date,
+               config_release_version,
+               config_release_checksum,
+               estimate_config_version,
+               estimate_config_checksum,
                create_dept,
                create_by,
                create_time,
@@ -21,7 +35,30 @@
                update_time
         FROM fund_estimate
         WHERE fund_code = #{fundCode}
+          AND config_release_version = #{configReleaseVersion}
+          AND config_release_checksum = #{configReleaseChecksum}
         ORDER BY estimate_time DESC
         LIMIT 1
     </select>
+
+    <delete id="deleteExpiredPreservingLatest">
+        WITH ranked AS (
+            SELECT id,
+                   estimate_time,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY fund_code, config_release_version, config_release_checksum
+                       ORDER BY estimate_time DESC
+                   ) AS snapshot_rank
+            FROM fund_estimate
+        ), candidates AS (
+            SELECT id
+            FROM ranked
+            WHERE snapshot_rank &gt; 1
+              AND estimate_time &lt; #{cutoff}
+            ORDER BY estimate_time
+            LIMIT #{batchSize}
+        )
+        DELETE FROM fund_estimate
+        WHERE id IN (SELECT id FROM candidates)
+    </delete>
 </mapper>

@@ -26,6 +26,7 @@ final class FundDataSyncServiceContractTest {
     void changedReplayShouldPublishNewVersionAndInvalidateFundKeys() {
         assertEquals("NORMAL", FundDataQualityStatusEnum.NORMAL.getCode());
         assertEquals("PARTIAL_SUCCESS", FundSyncStatusEnum.PARTIAL_SUCCESS.getCode());
+        assertEquals("PAUSED", FundSyncStatusEnum.PAUSED.getCode());
     }
 
     @Test

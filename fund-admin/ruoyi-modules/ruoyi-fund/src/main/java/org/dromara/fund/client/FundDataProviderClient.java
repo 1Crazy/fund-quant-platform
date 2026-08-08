@@ -11,8 +11,11 @@ import org.dromara.fund.domain.dto.QuantProviderEnvelope;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -89,6 +92,8 @@ public class FundDataProviderClient {
 
     public org.dromara.fund.domain.dto.FundSyncEnvelope<FundProviderResponse> syncCatalog(String batchId, int page, int pageSize) {
         URI uri = URI.create(baseUrl() + "/internal/v1/data/sync/catalog");
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
         ResponseEntity<QuantProviderEnvelope<org.dromara.fund.domain.dto.FundSyncEnvelope<FundProviderResponse>>> response = exchange(
             uri,
             HttpMethod.POST,
@@ -96,7 +101,7 @@ public class FundDataProviderClient {
                 "batchId", batchId,
                 "page", page,
                 "pageSize", pageSize
-            )),
+            ), headers),
             new ParameterizedTypeReference<>() {
             }
         );
@@ -177,6 +182,8 @@ public class FundDataProviderClient {
     ) {
         try {
             return restTemplateBuilder
+                // fund-quant 的本地 Uvicorn 端点只提供 HTTP/1.1，避免 JDK 客户端尝试 h2/h2c 协商。
+                .requestFactory(SimpleClientHttpRequestFactory::new)
                 .connectTimeout(properties.getProviderConnectTimeout())
                 .readTimeout(properties.getProviderReadTimeout())
                 .build()

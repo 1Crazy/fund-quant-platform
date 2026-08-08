@@ -97,18 +97,40 @@ CREATE TABLE fund_estimate (
     previous_nav_date date,
     source          varchar(32)     NOT NULL DEFAULT 'AKSHARE',
     source_status   varchar(16)     NOT NULL DEFAULT 'NORMAL',
+    status_reason   varchar(256),
+    holding_coverage_rate numeric(8, 4),
+    quote_coverage_rate numeric(8, 4),
+    missing_quote_count integer,
+    quote_time      timestamptz,
+    holding_report_date date,
+    holding_report_period varchar(64),
+    input_data_version varchar(128),
+    algorithm_version varchar(64),
+    trade_date      date,
+    config_release_version bigint    NOT NULL,
+    config_release_checksum char(64) NOT NULL,
+    estimate_config_version bigint,
+    estimate_config_checksum char(64),
     create_dept     bigint,
     create_by       bigint,
     create_time     timestamptz     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_by       bigint,
     update_time     timestamptz     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT uk_fund_estimate_code_time UNIQUE (fund_code, estimate_time),
+    CONSTRAINT uk_fund_estimate_code_time_release UNIQUE (fund_code, estimate_time, config_release_version),
     CONSTRAINT fk_fund_estimate_code FOREIGN KEY (fund_code) REFERENCES fund_info (fund_code),
-    CONSTRAINT ck_fund_estimate_source_status CHECK (source_status IN ('NORMAL', 'STALE', 'FAILED'))
+    CONSTRAINT ck_fund_estimate_source_status CHECK (source_status IN ('NORMAL', 'PARTIAL', 'UNSUPPORTED', 'STALE', 'FAILED', 'UPSTREAM_FAILED')),
+    CONSTRAINT ck_fund_estimate_config_checksum CHECK (config_release_checksum ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT ck_fund_estimate_holding_coverage CHECK (holding_coverage_rate IS NULL OR holding_coverage_rate BETWEEN 0 AND 100),
+    CONSTRAINT ck_fund_estimate_quote_coverage CHECK (quote_coverage_rate IS NULL OR quote_coverage_rate BETWEEN 0 AND 100),
+    CONSTRAINT ck_fund_estimate_missing_quote_count CHECK (missing_quote_count IS NULL OR missing_quote_count >= 0),
+    CONSTRAINT ck_fund_estimate_group_checksum CHECK (estimate_config_checksum IS NULL OR estimate_config_checksum ~ '^[0-9a-f]{64}$')
 );
 
 COMMENT ON TABLE fund_estimate IS '基金盘中估值快照（跨租户共享）';
 CREATE INDEX idx_fund_estimate_code_time_desc ON fund_estimate (fund_code, estimate_time DESC);
+CREATE INDEX idx_fund_estimate_release ON fund_estimate (config_release_version, config_release_checksum, fund_code, estimate_time DESC);
+CREATE INDEX idx_fund_estimate_release_trade_date ON fund_estimate (config_release_version, config_release_checksum, trade_date DESC, fund_code);
+CREATE INDEX idx_fund_estimate_retention ON fund_estimate (estimate_time ASC, fund_code);
 
 CREATE TABLE fund_trend_snapshot (
     id              bigint          PRIMARY KEY,
@@ -289,7 +311,7 @@ CREATE TABLE fund_sync_run (
     update_by           bigint,
     update_time         timestamptz     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uk_fund_sync_run_batch UNIQUE (fetch_batch_id),
-    CONSTRAINT ck_fund_sync_run_state CHECK (state IN ('PENDING', 'RUNNING', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'CANCELLED')),
+    CONSTRAINT ck_fund_sync_run_state CHECK (state IN ('PENDING', 'RUNNING', 'PAUSED', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'CANCELLED')),
     CONSTRAINT ck_fund_sync_run_quality CHECK (quality_status IN ('NORMAL', 'PARTIAL', 'EMPTY', 'STALE', 'FAILED')),
     CONSTRAINT ck_fund_sync_run_counts CHECK (
         success_count >= 0
@@ -460,6 +482,127 @@ CREATE TABLE portfolio_risk_snapshot (
 
 CREATE INDEX idx_portfolio_risk_portfolio_date ON portfolio_risk_snapshot (tenant_id, portfolio_id, trade_date DESC);
 
+-- 量化配置中心：配置版本仅允许在 DRAFT 状态编辑，发布清单始终不可变。
+CREATE TABLE quant_config_version (
+    id                 bigint          PRIMARY KEY,
+    config_code        varchar(32)     NOT NULL,
+    config_version     integer         NOT NULL,
+    schema_version     integer         NOT NULL,
+    status             varchar(16)     NOT NULL DEFAULT 'DRAFT',
+    config_json        jsonb           NOT NULL,
+    checksum           char(64)        NOT NULL,
+    effective_from     timestamptz,
+    revision           bigint          NOT NULL DEFAULT 0,
+    create_dept        bigint,
+    create_by          bigint,
+    create_time        timestamptz     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_by          bigint,
+    update_time        timestamptz     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    remark             varchar(500),
+    CONSTRAINT uk_quant_config_version UNIQUE (config_code, config_version),
+    CONSTRAINT ck_quant_config_version_code CHECK (config_code IN (
+        'GLOBAL_CONVENTIONS', 'ESTIMATE', 'TREND', 'MOVING_AVERAGE', 'RSI_MACD',
+        'NAV_POSITION', 'FACTOR', 'FUND_RISK', 'PORTFOLIO_RISK', 'BACKTEST'
+    )),
+    CONSTRAINT ck_quant_config_version_schema CHECK (schema_version > 0),
+    CONSTRAINT ck_quant_config_version_status CHECK (status IN ('DRAFT', 'VALIDATED', 'PUBLISHED')),
+    CONSTRAINT ck_quant_config_version_checksum CHECK (checksum ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT ck_quant_config_version_json CHECK (jsonb_typeof(config_json) = 'object')
+);
+CREATE INDEX idx_quant_config_version_code_status ON quant_config_version (config_code, status, config_version DESC);
+CREATE INDEX idx_quant_config_version_effective ON quant_config_version (effective_from DESC NULLS LAST);
+
+CREATE SEQUENCE quant_config_release_version_seq START WITH 1 INCREMENT BY 1;
+
+CREATE TABLE quant_config_release (
+    id                 bigint          PRIMARY KEY,
+    release_version    bigint          NOT NULL,
+    status             varchar(16)     NOT NULL DEFAULT 'PUBLISHED',
+    checksum           char(64)        NOT NULL,
+    effective_from     timestamptz     NOT NULL,
+    published_by       bigint,
+    published_at       timestamptz     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    rollback_of_release_version bigint,
+    change_summary     varchar(500),
+    create_dept        bigint,
+    create_by          bigint,
+    create_time        timestamptz     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_by          bigint,
+    update_time        timestamptz     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    remark             varchar(500),
+    CONSTRAINT uk_quant_config_release_version UNIQUE (release_version),
+    CONSTRAINT ck_quant_config_release_status CHECK (status = 'PUBLISHED'),
+    CONSTRAINT ck_quant_config_release_checksum CHECK (checksum ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT fk_quant_config_release_rollback FOREIGN KEY (rollback_of_release_version)
+        REFERENCES quant_config_release (release_version)
+);
+CREATE INDEX idx_quant_config_release_effective ON quant_config_release (effective_from DESC, release_version DESC);
+
+ALTER TABLE fund_estimate
+    ADD CONSTRAINT fk_fund_estimate_config_release
+        FOREIGN KEY (config_release_version) REFERENCES quant_config_release (release_version);
+
+CREATE TABLE quant_config_release_item (
+    id                 bigint          PRIMARY KEY,
+    release_id         bigint          NOT NULL,
+    config_code        varchar(32)     NOT NULL,
+    config_version_id  bigint          NOT NULL,
+    config_version     integer         NOT NULL,
+    config_checksum    char(64)        NOT NULL,
+    schema_version     integer         NOT NULL,
+    create_time        timestamptz     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uk_quant_config_release_item UNIQUE (release_id, config_code),
+    CONSTRAINT fk_quant_config_release_item_release FOREIGN KEY (release_id) REFERENCES quant_config_release (id),
+    CONSTRAINT fk_quant_config_release_item_version FOREIGN KEY (config_version_id) REFERENCES quant_config_version (id),
+    CONSTRAINT ck_quant_config_release_item_checksum CHECK (config_checksum ~ '^[0-9a-f]{64}$')
+);
+CREATE INDEX idx_quant_config_release_item_version
+    ON quant_config_release_item (config_code, config_version, release_id);
+
+CREATE FUNCTION prevent_quant_config_version_mutation()
+RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'DELETE' AND OLD.status <> 'DRAFT' THEN
+        RAISE EXCEPTION 'validated or published configuration version is immutable';
+    END IF;
+    IF TG_OP = 'UPDATE' AND OLD.status <> 'DRAFT' THEN
+        RAISE EXCEPTION 'validated or published configuration version is immutable';
+    END IF;
+    IF TG_OP = 'UPDATE' AND NEW.status = 'DRAFT' AND OLD.status <> 'DRAFT' THEN
+        RAISE EXCEPTION 'configuration version cannot return to draft';
+    END IF;
+    RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER trg_quant_config_version_immutable
+BEFORE UPDATE OR DELETE ON quant_config_version
+FOR EACH ROW EXECUTE FUNCTION prevent_quant_config_version_mutation();
+
+CREATE FUNCTION prevent_quant_config_release_mutation()
+RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'published configuration release is immutable';
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER trg_quant_config_release_immutable
+BEFORE UPDATE OR DELETE ON quant_config_release
+FOR EACH ROW EXECUTE FUNCTION prevent_quant_config_release_mutation();
+CREATE TRIGGER trg_quant_config_release_item_immutable
+BEFORE UPDATE OR DELETE ON quant_config_release_item
+FOR EACH ROW EXECUTE FUNCTION prevent_quant_config_release_mutation();
+
+-- 部署账户创建 fund_quant_reader 后授予最小只读权限并施加连接与查询限制。
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'fund_quant_reader') THEN
+        GRANT SELECT ON quant_config_version, quant_config_release, quant_config_release_item TO fund_quant_reader;
+        EXECUTE 'ALTER ROLE fund_quant_reader SET default_transaction_read_only = on';
+        EXECUTE 'ALTER ROLE fund_quant_reader SET statement_timeout = ''5000ms''';
+        EXECUTE 'ALTER ROLE fund_quant_reader CONNECTION LIMIT 10';
+    END IF;
+END;
+$$;
+
 -- ----------------------------
 -- 基金实时估值菜单与权限
 -- 菜单 ID 使用独立号段，重复执行时通过 ON CONFLICT 保持幂等。
@@ -475,11 +618,18 @@ INSERT INTO sys_menu (
     (17003, '基金同步管理', 17000, 2, 'sync', 'fund/sync/index', NULL, '1', '0', 'C', '0', '0', 'fund:sync:list', 'history', 103, 1, now(), NULL, NULL, '基金数据同步运行与质量问题'),
     (17004, '基金同步查询', 17003, 1, '#', '', NULL, '1', '0', 'F', '0', '0', 'fund:sync:query', '#', 103, 1, now(), NULL, NULL, ''),
     (17005, '基金同步触发', 17003, 2, '#', '', NULL, '1', '0', 'F', '0', '0', 'fund:sync:trigger', '#', 103, 1, now(), NULL, NULL, ''),
-    (17006, '基金同步重试', 17003, 3, '#', '', NULL, '1', '0', 'F', '0', '0', 'fund:sync:retry', '#', 103, 1, now(), NULL, NULL, '')
+    (17006, '基金同步重试', 17003, 3, '#', '', NULL, '1', '0', 'F', '0', '0', 'fund:sync:retry', '#', 103, 1, now(), NULL, NULL, ''),
+    (17010, '量化配置', 17000, 3, 'config', 'fund/config/index', NULL, '1', '0', 'C', '0', '0', 'fund:config:list', 'settings-2', 103, 1, now(), NULL, NULL, '版本化量化配置管理'),
+    (17011, '量化配置查询', 17010, 1, '#', '', NULL, '1', '0', 'F', '0', '0', 'fund:config:query', '#', 103, 1, now(), NULL, NULL, ''),
+    (17012, '量化配置编辑', 17010, 2, '#', '', NULL, '1', '0', 'F', '0', '0', 'fund:config:edit', '#', 103, 1, now(), NULL, NULL, ''),
+    (17013, '量化配置校验', 17010, 3, '#', '', NULL, '1', '0', 'F', '0', '0', 'fund:config:validate', '#', 103, 1, now(), NULL, NULL, ''),
+    (17014, '量化配置发布', 17010, 4, '#', '', NULL, '1', '0', 'F', '0', '0', 'fund:config:publish', '#', 103, 1, now(), NULL, NULL, ''),
+    (17015, '量化配置回滚', 17010, 5, '#', '', NULL, '1', '0', 'F', '0', '0', 'fund:config:rollback', '#', 103, 1, now(), NULL, NULL, '')
 ON CONFLICT (menu_id) DO NOTHING;
 
 INSERT INTO sys_role_menu (role_id, menu_id)
-VALUES (1, 17000), (1, 17001), (1, 17002), (1, 17003), (1, 17004), (1, 17005), (1, 17006)
+VALUES (1, 17000), (1, 17001), (1, 17002), (1, 17003), (1, 17004), (1, 17005), (1, 17006),
+       (1, 17010), (1, 17011), (1, 17012), (1, 17013), (1, 17014), (1, 17015)
 ON CONFLICT (role_id, menu_id) DO NOTHING;
 
 COMMIT;

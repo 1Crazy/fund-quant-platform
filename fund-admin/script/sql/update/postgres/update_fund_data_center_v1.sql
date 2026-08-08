@@ -237,7 +237,7 @@ CREATE TABLE IF NOT EXISTS fund_sync_run (
     update_by           bigint,
     update_time         timestamptz     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uk_fund_sync_run_batch UNIQUE (fetch_batch_id),
-    CONSTRAINT ck_fund_sync_run_state CHECK (state IN ('PENDING', 'RUNNING', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'CANCELLED')),
+    CONSTRAINT ck_fund_sync_run_state CHECK (state IN ('PENDING', 'RUNNING', 'PAUSED', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'CANCELLED')),
     CONSTRAINT ck_fund_sync_run_quality CHECK (quality_status IN ('NORMAL', 'PARTIAL', 'EMPTY', 'STALE', 'FAILED')),
     CONSTRAINT ck_fund_sync_run_counts CHECK (
         success_count >= 0

@@ -1,0 +1,83 @@
+{
+  "canonical_json": {
+    "value": {
+      "z": [2, 1],
+      "a": {
+        "b": 1,
+        "a": 2
+      }
+    },
+    "canonical": "{\"a\":{\"a\":2,\"b\":1},\"z\":[2,1]}",
+    "checksum": "dbb98b49dd0cf7e95cb296eed9b3233b1eb80bf6b8305ecf4970fd004d84b86f"
+  },
+  "release_checksum": {
+    "items": [
+      {
+        "config_code": "ESTIMATE",
+        "config_version": 1,
+        "checksum": "0000000000000000000000000000000000000000000000000000000000000001"
+      },
+      {
+        "config_code": "GLOBAL_CONVENTIONS",
+        "config_version": 2,
+        "checksum": "0000000000000000000000000000000000000000000000000000000000000002"
+      },
+      {
+        "config_code": "TREND",
+        "config_version": 3,
+        "checksum": "0000000000000000000000000000000000000000000000000000000000000003"
+      }
+    ],
+    "checksum": "5538865713b625df36c0331030a26048a45746e9515d21d4c41def1ca04af753"
+  },
+  "validation_cases": [
+    {
+      "config_code": "MOVING_AVERAGE",
+      "replace": {
+        "windows": [20, 60]
+      },
+      "expected_errors": ["QUANT_CONFIG_WINDOWS_INVALID:windows"]
+    },
+    {
+      "config_code": "RSI_MACD",
+      "replace": {
+        "macd_fast": 26
+      },
+      "expected_errors": ["QUANT_CONFIG_MACD_WINDOW_INVALID:macd_fast"]
+    },
+    {
+      "config_code": "NAV_POSITION",
+      "replace": {
+        "region_thresholds": [25, 25, 75]
+      },
+      "expected_errors": ["QUANT_CONFIG_THRESHOLDS_INVALID:region_thresholds"]
+    },
+    {
+      "config_code": "FACTOR",
+      "replace": {
+        "weights": {
+          "max_drawdown": 20,
+          "nav_position": 15,
+          "return_12m": 25,
+          "risk_adjusted_return": 25,
+          "trend": 16
+        }
+      },
+      "expected_errors": ["QUANT_CONFIG_FACTOR_WEIGHTS_INVALID:weights"]
+    },
+    {
+      "config_code": "FUND_RISK",
+      "replace": {
+        "risk_unit": ""
+      },
+      "expected_errors": ["QUANT_CONFIG_TEXT_REQUIRED:risk_unit"]
+    },
+    {
+      "config_code": "BACKTEST",
+      "replace": {
+        "win_rate": 0.5
+      },
+      "expected_errors": ["QUANT_CONFIG_D-010_WIN_RATE_BLOCKED:win_rate"]
+    }
+  ]
+}

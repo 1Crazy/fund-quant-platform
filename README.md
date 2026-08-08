@@ -33,7 +33,7 @@ make dev
 make dev
 ```
 
-`make dev` 会自动使用 SDKMAN 当前的 JDK 与 Maven，先从聚合工程增量安装当前模块，再启动 `ruoyi-admin`，避免子模块修改后仍加载 `~/.m2` 中旧 Jar。不需要手动执行 `source`。后端依赖安装只需在首次启动或 Maven 配置发生变化后执行。
+`make dev` 会自动使用 SDKMAN 当前的 JDK 与 Maven，先从聚合工程增量安装当前模块，再以本地热部署模式启动 `ruoyi-admin`。保存 `ruoyi-admin` 或 `ruoyi-fund` 的 Java、Mapper 或配置文件后，会自动增量编译并由 DevTools 重载应用上下文；不再需要手动停止和启动 Java 服务。后端依赖安装只需在首次启动或 Maven 配置发生变化后执行。
 
 后端地址：`http://localhost:8080`
 

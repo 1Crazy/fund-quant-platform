@@ -20,6 +20,7 @@
     "build:analyze": "pnpm vite build --mode analyze",
     "dev": "pnpm vite --mode development",
     "preview": "vite preview",
+    "test:e2e": "pnpm exec playwright test -c playwright.config.ts",
     "typecheck": "vue-tsc --noEmit --skipLibCheck"
   },
   "imports": {
@@ -48,6 +49,7 @@
     "vue-router": "catalog:"
   },
   "devDependencies": {
+    "@playwright/test": "catalog:",
     "unplugin-element-plus": "catalog:"
   }
 }

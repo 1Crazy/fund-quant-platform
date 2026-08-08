@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.dromara.fund.mapper.QuantConfigReleaseMapper">
+    <select id="selectNextReleaseVersion" resultType="long">
+        SELECT nextval('quant_config_release_version_seq')
+    </select>
+
+    <select id="selectReleaseHistory" resultType="org.dromara.fund.domain.vo.QuantConfigReleaseVo">
+        SELECT id, release_version, status, checksum, effective_from, published_at,
+               rollback_of_release_version, change_summary
+        FROM quant_config_release
+        ORDER BY release_version DESC
+    </select>
+
+    <select id="selectReleaseVo" resultType="org.dromara.fund.domain.vo.QuantConfigReleaseVo">
+        SELECT id, release_version, status, checksum, effective_from, published_at,
+               rollback_of_release_version, change_summary
+        FROM quant_config_release
+        WHERE release_version = #{releaseVersion}
+    </select>
+
+    <select id="selectReleaseItems" resultType="org.dromara.fund.domain.vo.QuantConfigVersionVo">
+        SELECT v.id, v.config_code, v.config_version, v.schema_version, v.status,
+               v.config_json::text AS config_json, v.checksum, v.effective_from, v.revision, v.remark,
+               v.create_time, v.update_time
+        FROM quant_config_release_item i
+        JOIN quant_config_release r ON r.id = i.release_id
+        JOIN quant_config_version v ON v.id = i.config_version_id
+        WHERE r.release_version = #{releaseVersion}
+        ORDER BY i.config_code
+    </select>
+
+    <select id="selectActiveRelease" resultType="org.dromara.fund.domain.QuantConfigRelease">
+        SELECT id, release_version, status, checksum, effective_from, published_by, published_at,
+               rollback_of_release_version, change_summary, create_time, update_time, remark
+        FROM quant_config_release
+        WHERE effective_from &lt;= CURRENT_TIMESTAMP
+        ORDER BY effective_from DESC, release_version DESC
+        LIMIT 1
+    </select>
+
+    <insert id="insertItem">
+        INSERT INTO quant_config_release_item (
+            id, release_id, config_code, config_version_id, config_version,
+            config_checksum, schema_version, create_time
+        ) VALUES (
+            #{item.id}, #{item.releaseId}, #{item.configCode}, #{item.configVersionId}, #{item.configVersion},
+            #{item.configChecksum}, #{item.schemaVersion}, CURRENT_TIMESTAMP
+        )
+    </insert>
+</mapper>
