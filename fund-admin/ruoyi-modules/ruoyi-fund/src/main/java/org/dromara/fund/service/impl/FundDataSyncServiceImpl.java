@@ -1165,7 +1165,6 @@ public class FundDataSyncServiceImpl implements IFundDataSyncService {
                 RedisUtils.deleteKeys(FundCacheConstants.NAV_KEY_PREFIX + fundCode + ":*");
                 RedisUtils.deleteKeys(FundCacheConstants.HOLDING_KEY_PREFIX + fundCode + ":*");
                 RedisUtils.deleteKeys(FundCacheConstants.estimateCachePattern(fundCode));
-                RedisUtils.deleteKeys(FundCacheConstants.navPositionCachePattern(fundCode));
             }
         };
         if (TransactionSynchronizationManager.isSynchronizationActive()) {

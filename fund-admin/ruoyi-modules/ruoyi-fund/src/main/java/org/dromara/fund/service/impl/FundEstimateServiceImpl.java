@@ -68,11 +68,27 @@ public class FundEstimateServiceImpl implements IFundEstimateService {
     }
 
     private FundEstimateVo refreshEstimate(String fundCode, QuantConfigTaskContext configContext) {
+        return refreshEstimate(fundCode, configContext, false);
+    }
+
+    private FundEstimateVo refreshEstimate(
+        String fundCode,
+        QuantConfigTaskContext configContext,
+        boolean forceSnapshot
+    ) {
         RedisUtils.deleteObject(estimateCacheKey(fundCode, configContext));
-        return queryEstimate(fundCode, configContext);
+        return queryEstimate(fundCode, configContext, forceSnapshot);
     }
 
     private FundEstimateVo queryEstimate(String fundCode, QuantConfigTaskContext configContext) {
+        return queryEstimate(fundCode, configContext, false);
+    }
+
+    private FundEstimateVo queryEstimate(
+        String fundCode,
+        QuantConfigTaskContext configContext,
+        boolean forceSnapshot
+    ) {
         if (!fundInfoMapper.hasReadyEstimateInputs(fundCode)) {
             FundEstimateVo unavailable = unavailableForMissingInputs(fundCode, configContext);
             estimateMetrics.recordResult(unavailable);
@@ -117,11 +133,13 @@ public class FundEstimateServiceImpl implements IFundEstimateService {
             if (!FundEstimateSourceStatusEnum.NORMAL.getCode().equals(fresh.getSourceStatus())) {
                 return fresh;
             }
-            RedisUtils.setCacheObject(cacheKey, fresh, runtimeSettings.getCacheTtl());
+            RedisUtils.setCacheObject(cacheKey, fresh, runtimeSettings.getCacheTtl(
+                java.time.ZonedDateTime.now(runtimeSettings.getScheduleZoneId())
+            ));
             // 详情缓存内嵌盘中估值；不清除会使用户刷新估值后重新打开页面仍读到旧空值或旧快照。
             RedisUtils.deleteKeys(FundCacheConstants.INFO_KEY_PREFIX + fundCode + ":detail:*");
             try {
-                estimateMetrics.recordSnapshot(persistSnapshot(fresh, configContext));
+                estimateMetrics.recordSnapshot(persistSnapshot(fresh, configContext, forceSnapshot));
             } catch (RuntimeException e) {
                 log.warn("基金 {} 估值快照落库失败，本次仍返回实时估值: {}", fundCode, e.getMessage());
             }
@@ -157,6 +175,11 @@ public class FundEstimateServiceImpl implements IFundEstimateService {
 
     @Override
     public int refreshActiveFunds() {
+        return refreshActiveFunds(false);
+    }
+
+    @Override
+    public int refreshActiveFunds(boolean forceSnapshot) {
         Timer.Sample scheduleTimer = estimateMetrics.startScheduleRun();
         RLock scheduleLock = null;
         boolean locked = false;
@@ -169,7 +192,7 @@ public class FundEstimateServiceImpl implements IFundEstimateService {
                 scheduleTracker.markLockContention();
                 return 0;
             }
-            return doRefreshActiveFunds(configContext);
+            return doRefreshActiveFunds(configContext, forceSnapshot);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.warn("基金实时估值刷新任务获取分布式锁时被中断");
@@ -182,7 +205,7 @@ public class FundEstimateServiceImpl implements IFundEstimateService {
         }
     }
 
-    private int doRefreshActiveFunds(QuantConfigTaskContext configContext) {
+    private int doRefreshActiveFunds(QuantConfigTaskContext configContext, boolean forceSnapshot) {
         List<String> configuredCodes = runtimeSettings.getHotFundCodes();
         if (configuredCodes.isEmpty()) {
             log.info("基金实时估值刷新跳过：未配置热点基金范围");
@@ -198,7 +221,7 @@ public class FundEstimateServiceImpl implements IFundEstimateService {
         int successCount = 0;
         for (String fundCode : fundCodes) {
             try {
-                FundEstimateVo result = refreshEstimate(fundCode, configContext);
+                FundEstimateVo result = refreshEstimate(fundCode, configContext, forceSnapshot);
                 scheduleTracker.recordStatus(result.getSourceStatus());
                 if (FundEstimateSourceStatusEnum.NORMAL.getCode().equals(result.getSourceStatus())) {
                     successCount++;
@@ -422,13 +445,17 @@ public class FundEstimateServiceImpl implements IFundEstimateService {
         }
     }
 
-    private boolean persistSnapshot(FundEstimateVo estimate, QuantConfigTaskContext configContext) {
+    private boolean persistSnapshot(
+        FundEstimateVo estimate,
+        QuantConfigTaskContext configContext,
+        boolean forceSnapshot
+    ) {
         FundEstimate latest = estimateMapper.selectLatestForRelease(
             estimate.getFundCode(),
             configContext.getConfigReleaseVersion(),
             configContext.getConfigReleaseChecksum()
         );
-        if (latest != null && latest.getEstimateTime() != null
+        if (!forceSnapshot && latest != null && latest.getEstimateTime() != null
             && Math.abs(ChronoUnit.SECONDS.between(
                 latest.getEstimateTime().toLocalDateTime(), estimate.getEstimateTime()))
                 < runtimeSettings.getSnapshotThrottleSeconds()) {

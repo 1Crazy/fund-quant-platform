@@ -75,6 +75,7 @@ export namespace FundApi {
     estimateConfigVersion?: number;
     fundCode: string;
     holdingCoverageRate?: number;
+    holdingReportDate?: string;
     inputDataVersion?: string;
     isStale: boolean;
     missingQuoteCount?: number;
@@ -212,6 +213,7 @@ export namespace FundApi {
     date: string;
     qualityStatus?: FundQualityStatus;
     source?: string;
+    sourceTime?: string;
     sourceUpdatedAt?: string;
     unitNav: number;
   }
@@ -307,6 +309,7 @@ export namespace FundApi {
 
   export interface FundSyncRun {
     id?: number;
+    message?: string;
     cursorValue?: string;
     dataset: FundDataset;
     dataVersion?: string;
@@ -315,6 +318,7 @@ export namespace FundApi {
     errorMessage?: string;
     errorSummary?: string;
     failedCount?: number;
+    fetchBatchId?: string;
     finishedAt?: string;
     fundCode?: string;
     partitionKey?: string;

@@ -34,8 +34,9 @@ public class FundEstimateSchedule {
             }
             ZonedDateTime now = ZonedDateTime.now(runtimeSettings.getScheduleZoneId());
             ZonedDateTime slotTime = now.withNano(0);
-            if (!runtimeSettings.isActiveTradingSession(now)
-                || !isCronSlot(slotTime)) {
+            boolean closeSnapshot = runtimeSettings.isCloseSnapshotSlot(slotTime);
+            if (!closeSnapshot && (!runtimeSettings.isActiveTradingSession(now)
+                || !isCronSlot(slotTime))) {
                 return;
             }
             String slot = slotTime.toOffsetDateTime().toString();
@@ -43,8 +44,8 @@ public class FundEstimateSchedule {
                 return;
             }
             lastTriggeredSlot.set(slot);
-            int successCount = fundEstimateService.refreshActiveFunds();
-            log.info("基金实时估值定时刷新完成，成功基金数: {}", successCount);
+            int successCount = fundEstimateService.refreshActiveFunds(closeSnapshot);
+            log.info("基金实时估值定时刷新完成，收盘快照={}, 成功基金数: {}", closeSnapshot, successCount);
         } catch (RuntimeException error) {
             // 配置异常不能终止 Spring 调度线程；修复 sys_config 后下一轮会自动恢复。
             log.error("基金实时估值调度跳过: {}", error.getMessage());

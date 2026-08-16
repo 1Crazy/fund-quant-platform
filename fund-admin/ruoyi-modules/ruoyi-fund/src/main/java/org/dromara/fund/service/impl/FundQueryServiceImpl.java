@@ -21,7 +21,6 @@ import org.dromara.fund.domain.vo.FundEstimateVo;
 import org.dromara.fund.domain.vo.FundHoldingVo;
 import org.dromara.fund.domain.vo.FundHoldingQuoteVo;
 import org.dromara.fund.domain.vo.FundListVo;
-import org.dromara.fund.domain.vo.FundNavPositionVo;
 import org.dromara.fund.domain.vo.FundNavPointVo;
 import org.dromara.fund.mapper.FundHoldingMapper;
 import org.dromara.fund.mapper.FundDataQualityIssueMapper;
@@ -29,14 +28,12 @@ import org.dromara.fund.mapper.FundInfoMapper;
 import org.dromara.fund.mapper.FundNavMapper;
 import org.dromara.fund.service.IFundDataSyncService;
 import org.dromara.fund.service.IFundEstimateService;
-import org.dromara.fund.service.IFundNavPositionService;
 import org.dromara.fund.service.IFundQueryService;
 import org.dromara.fund.service.QuantConfigTaskContextResolver;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.util.Collection;
 import java.util.List;
 
 /**
@@ -55,7 +52,6 @@ public class FundQueryServiceImpl implements IFundQueryService {
     private final FundEstimateRuntimeSettings estimateRuntimeSettings;
     private final IFundDataSyncService fundDataSyncService;
     private final IFundEstimateService estimateService;
-    private final IFundNavPositionService navPositionService;
     private final QuantConfigTaskContextResolver quantConfigTaskContextResolver;
 
     @Override
@@ -64,24 +60,23 @@ public class FundQueryServiceImpl implements IFundQueryService {
         String fundName = normalizeText(bo.getFundName());
         bo.setFundCode(fundCode);
         bo.setFundName(fundName);
-        if (isExactFundCode(fundCode)) {
-            // 精确代码查询采用读穿透：本地未收录时由 Java 统一向 fund-quant 回源并落库。
-            fundDataSyncService.ensureAvailable(fundCode, 1);
-        } else if (fundName != null) {
-            // 名称搜索先同步轻量基金目录，净值与完整档案在进入详情时按需加载。
-            fundDataSyncService.syncCatalogMatches(fundName);
-        }
         QuantConfigTaskContext configContext = resolveActiveConfigOrNull();
-        if (bo.getNavPositionRegion() != null && !bo.getNavPositionRegion().isBlank()) {
-            bo.setNavPositionFundCodes(findCachedNavPositionFundCodes(bo.getNavPositionRegion(), configContext));
-        }
-        Page<FundListVo> page = fundInfoMapper.selectFundPage(
-            pageQuery.build(),
+        long total = fundInfoMapper.countFundPage(
+            bo,
+            configContext == null ? null : configContext.getConfigReleaseVersion(),
+            configContext == null ? null : configContext.getConfigReleaseChecksum()
+        );
+        Page<FundListVo> page = pageQuery.build();
+        // 自动 count 会包住列表的展示关联，导致空筛选也扫描 NAV、持仓、同步和估值数据。
+        page.setSearchCount(false);
+        page = fundInfoMapper.selectFundPage(
+            page,
             bo,
             configContext == null ? null : configContext.getConfigReleaseVersion(),
             configContext == null ? null : configContext.getConfigReleaseChecksum(),
             estimateRuntimeSettings.getStaleAfter().toSeconds()
         );
+        page.setTotal(total);
         for (FundListVo row : page.getRecords()) {
             // 分页 SQL 已一次性加载数据库最新估值；这里只用 Redis 热点值覆盖，避免逐行查库形成 N+1。
             String algorithmVersion = estimateAlgorithmVersion(configContext);
@@ -104,16 +99,6 @@ public class FundQueryServiceImpl implements IFundQueryService {
                 row.setEstimateMissingQuoteCount(estimate.getMissingQuoteCount());
                 row.setEstimateStatusReason(estimate.getStatusReason());
             }
-            // 历史位置仅复用已计算的热点缓存；分页查询绝不逐行回源 fund-quant。
-            FundNavPositionVo navPosition = navPositionService.queryCached(row.getFundCode(), configContext);
-            if (navPosition != null) {
-                row.setNavPositionStatus(navPosition.getStatus());
-                row.setNavPositionScore(navPosition.getNavPositionScore());
-                row.setNavPositionRegion(navPosition.getNavPositionRegion());
-                row.setNavPositionTradeDate(navPosition.getTradeDate());
-                row.setNavPositionCalculatedAt(navPosition.getCalculatedAt() == null
-                    ? null : navPosition.getCalculatedAt().toLocalDateTime());
-            }
         }
         return TableDataInfo.build(page);
     }
@@ -125,31 +110,6 @@ public class FundQueryServiceImpl implements IFundQueryService {
         QuantConfigReleaseReference.GroupReference estimateGroup = context.getGroups().get("ESTIMATE");
         return estimateGroup == null || estimateGroup.getSchemaVersion() == null
             ? null : "holding-estimate-v" + estimateGroup.getSchemaVersion();
-    }
-
-    /** 历史位置由当前发布版本的 Redis 投影提供，筛选时只扫描该版本的缓存键。 */
-    private List<String> findCachedNavPositionFundCodes(String region, QuantConfigTaskContext context) {
-        String algorithmVersion = navPositionAlgorithmVersion(context);
-        if (algorithmVersion == null) {
-            return List.of();
-        }
-        String pattern = FundCacheConstants.NAV_POSITION_KEY_PREFIX + "*:" + algorithmVersion + ":"
-            + context.getConfigReleaseVersion() + ":" + context.getConfigReleaseChecksum();
-        Collection<String> keys = RedisUtils.keys(pattern);
-        return keys.stream()
-            .map(key -> RedisUtils.<FundNavPositionVo>getCacheObject(key))
-            .filter(position -> position != null && region.equals(position.getNavPositionRegion()))
-            .map(FundNavPositionVo::getFundCode)
-            .distinct()
-            .toList();
-    }
-
-    private String navPositionAlgorithmVersion(QuantConfigTaskContext context) {
-        if (context == null || context.getGroups() == null) {
-            return null;
-        }
-        QuantConfigReleaseReference.GroupReference group = context.getGroups().get("NAV_POSITION");
-        return group == null || group.getSchemaVersion() == null ? null : "nav-position-v" + group.getSchemaVersion();
     }
 
     @Override

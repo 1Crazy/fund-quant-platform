@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import {
   datasetLabel,
   estimateRefreshPermissions,
@@ -76,6 +79,10 @@ describe('fund data center status helpers', () => {
       label: '上游失败',
       type: 'danger',
     });
+    expect(estimateStatusMeta('FAILED')).toMatchObject({
+      label: '计算失败',
+      type: 'danger',
+    });
     expect(
       hasAnyFundPermission(['fund:estimate:refresh'], estimateRefreshPermissions),
     ).toBe(true);
@@ -97,6 +104,17 @@ describe('fund data center status helpers', () => {
     expect(
       hasAnyFundPermission(['fund:sync:trigger'], manualSyncPermissions),
     ).toBe(true);
+    expect(
+      hasAnyFundPermission(['fund:info:list'], estimateRefreshPermissions),
+    ).toBe(false);
+  });
+
+  it('keeps real-time estimates informational rather than trading advice', () => {
+    const fundViewsDirectory = resolve(process.cwd(), 'apps/admin/src/views/fund');
+    const list = readFileSync(resolve(fundViewsDirectory, 'list/index.vue'), 'utf8');
+    const detail = readFileSync(resolve(fundViewsDirectory, 'detail/index.vue'), 'utf8');
+
+    expect(`${list}\n${detail}`).not.toMatch(/买入|卖出|推荐买入|推荐卖出/);
   });
 
   it('keeps configuration permissions and status labels distinct by action', () => {

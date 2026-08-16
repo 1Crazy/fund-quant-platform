@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+    PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+    "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.dromara.fund.mapper.FundNavPositionMapper">
+
+    <select id="selectForRelease" resultType="org.dromara.fund.domain.FundNavPosition">
+        SELECT id,
+               fund_code,
+               trade_date,
+               calculated_at,
+               status,
+               algorithm_version,
+               config_release_version,
+               config_release_checksum,
+               nav_position_config_version,
+               nav_position_config_checksum,
+               input_data_version,
+               nav_percentile,
+               current_drawdown,
+               ma60_deviation,
+               ma120_deviation,
+               ma250_deviation,
+               nav_position_score,
+               nav_position_region,
+               sample_count,
+               effective_start_date,
+               effective_end_date,
+               reasons::text AS reasons_json,
+               indicators::text AS indicators_json,
+               create_dept,
+               create_by,
+               create_time,
+               update_by,
+               update_time
+        FROM fund_nav_position
+        WHERE fund_code = #{fundCode}
+          AND config_release_version = #{configReleaseVersion}
+          AND config_release_checksum = #{configReleaseChecksum}
+        LIMIT 1
+    </select>
+
+    <insert id="upsert">
+        INSERT INTO fund_nav_position (
+            id, fund_code, trade_date, calculated_at, status, algorithm_version,
+            config_release_version, config_release_checksum,
+            nav_position_config_version, nav_position_config_checksum, input_data_version,
+            nav_percentile, current_drawdown, ma60_deviation, ma120_deviation, ma250_deviation,
+            nav_position_score, nav_position_region, sample_count, effective_start_date, effective_end_date,
+            reasons, indicators, create_time, update_time
+        ) VALUES (
+            #{item.id}, #{item.fundCode}, #{item.tradeDate}, #{item.calculatedAt}, #{item.status},
+            #{item.algorithmVersion}, #{item.configReleaseVersion}, #{item.configReleaseChecksum},
+            #{item.navPositionConfigVersion}, #{item.navPositionConfigChecksum}, #{item.inputDataVersion},
+            #{item.navPercentile}, #{item.currentDrawdown}, #{item.ma60Deviation}, #{item.ma120Deviation},
+            #{item.ma250Deviation}, #{item.navPositionScore}, #{item.navPositionRegion}, #{item.sampleCount},
+            #{item.effectiveStartDate}, #{item.effectiveEndDate},
+            CAST(#{item.reasonsJson} AS jsonb), CAST(#{item.indicatorsJson} AS jsonb),
+            CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (fund_code, config_release_version, config_release_checksum) DO UPDATE SET
+            trade_date = EXCLUDED.trade_date,
+            calculated_at = EXCLUDED.calculated_at,
+            status = EXCLUDED.status,
+            algorithm_version = EXCLUDED.algorithm_version,
+            nav_position_config_version = EXCLUDED.nav_position_config_version,
+            nav_position_config_checksum = EXCLUDED.nav_position_config_checksum,
+            input_data_version = EXCLUDED.input_data_version,
+            nav_percentile = EXCLUDED.nav_percentile,
+            current_drawdown = EXCLUDED.current_drawdown,
+            ma60_deviation = EXCLUDED.ma60_deviation,
+            ma120_deviation = EXCLUDED.ma120_deviation,
+            ma250_deviation = EXCLUDED.ma250_deviation,
+            nav_position_score = EXCLUDED.nav_position_score,
+            nav_position_region = EXCLUDED.nav_position_region,
+            sample_count = EXCLUDED.sample_count,
+            effective_start_date = EXCLUDED.effective_start_date,
+            effective_end_date = EXCLUDED.effective_end_date,
+            reasons = EXCLUDED.reasons,
+            indicators = EXCLUDED.indicators,
+            update_time = CURRENT_TIMESTAMP
+    </insert>
+</mapper>

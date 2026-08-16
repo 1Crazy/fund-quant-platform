@@ -66,6 +66,31 @@ final class FundDataCenterMapperContractTest {
         assertTrue(fundInfo.contains("holding.quality_status IS DISTINCT FROM 'NORMAL'"));
     }
 
+    @Test
+    void estimateBatchRecalculationMustUseStableShardAndCursorPredicates() {
+        String fundInfo = mapper("mapper/fund/FundInfoMapper.xml");
+
+        assertTrue(fundInfo.contains("selectReadyEstimateFundCodesForShard"));
+        assertTrue(fundInfo.contains("hashtext(fi.fund_code)"));
+        assertTrue(fundInfo.contains("fi.fund_code &gt; #{lastFundCode}"));
+    }
+
+    @Test
+    void fundNameFilterMustGivePostgresAnExplicitParameterType() {
+        String fundInfo = mapper("mapper/fund/FundInfoMapper.xml");
+
+        assertTrue(fundInfo.contains("CAST(#{bo.fundName} AS varchar)"));
+        assertFalse(fundInfo.contains("CONCAT('%', #{bo.fundName}, '%')"));
+    }
+
+    @Test
+    void fundTypeFilterMustMatchLocalSubtypeValues() {
+        String fundInfo = mapper("mapper/fund/FundInfoMapper.xml");
+
+        assertTrue(fundInfo.contains("fi.fund_type LIKE (CAST(#{bo.fundType} AS varchar) || '%')"));
+        assertFalse(fundInfo.contains("fi.fund_type = #{bo.fundType}"));
+    }
+
     private String mapper(String resource) {
         try (InputStream input = getClass().getClassLoader().getResourceAsStream(resource)) {
             if (input == null) {

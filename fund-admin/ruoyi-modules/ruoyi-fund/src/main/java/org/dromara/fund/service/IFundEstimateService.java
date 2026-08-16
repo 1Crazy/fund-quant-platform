@@ -27,6 +27,9 @@ public interface IFundEstimateService {
      */
     int refreshActiveFunds();
 
+    /** 收盘时强制写入一次正常快照，不受常规快照节流影响。 */
+    int refreshActiveFunds(boolean forceSnapshot);
+
     /** 由 SnailJob 调用，删除超过保留期且不再是同版本最新快照的一个有界批次。 */
     int cleanupExpiredSnapshots();
 

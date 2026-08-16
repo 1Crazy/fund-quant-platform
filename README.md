@@ -68,7 +68,7 @@ export FUND_DATA_PROVIDER_BASE_URL='http://localhost:8000'
 export FUND_ESTIMATE_PROVIDER_URL='http://localhost:8000/internal/v1/data/estimate/{code}'
 ```
 
-精确输入六位基金代码查询时，Java 会自动从量化服务同步基金基础信息和最新净值；进入详情后再按近1月、近3月、近6月、近1年、近3年、近5年或成立以来补齐 PostgreSQL 数据与最新公开股票持仓，前端无需额外执行导入。
+基金列表中的代码、名称及其他筛选项只查询已同步到 PostgreSQL 的本地数据；进入详情后再按近1月、近3月、近6月、近1年、近3年、近5年或成立以来按需补齐净值与最新公开股票持仓。
 
 ## 文档入口
 

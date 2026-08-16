@@ -7,18 +7,15 @@ import type { FundApi } from './model';
  * RuoYi 的分页结构使用 rows/total，API 层统一转换为前端表格结构，避免页面感知后端框架细节。
  */
 export async function getFundListApi(params: FundApi.FundListParams) {
-  const exactCode = /^\d{6}$/.test(params.fundCode?.trim() ?? '');
-  const remoteSearch = Boolean(params.fundName?.trim());
   const requestOptions = {
     params,
     responseReturn: 'body' as const,
-    ...(exactCode || remoteSearch ? { timeout: 120_000 } : {}),
   };
   const response = await requestClient.get<
     FundApi.RuoYiPage<FundApi.FundListItem>
   >(
     '/fund/list',
-    // 精确代码或名称搜索会由 Java 同步 AkShare 冷数据，普通分页仍沿用全局 10 秒超时。
+    // 列表中的全部筛选项只查询 PostgreSQL，不在读请求中触发上游同步。
     requestOptions,
   );
   return {

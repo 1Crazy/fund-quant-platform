@@ -1,17 +1,22 @@
 package org.dromara.fund.service.impl;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.dromara.common.core.exception.ServiceException;
+import org.dromara.common.mybatis.utils.IdGeneratorUtil;
 import org.dromara.common.redis.utils.RedisUtils;
 import org.dromara.fund.client.FundNavPositionProviderClient;
-import org.dromara.fund.config.FundEstimateRuntimeSettings;
 import org.dromara.fund.constant.FundCacheConstants;
+import org.dromara.fund.domain.FundNavPosition;
 import org.dromara.fund.domain.dto.NavPositionProviderResponse;
 import org.dromara.fund.domain.dto.QuantConfigReleaseReference;
 import org.dromara.fund.domain.dto.QuantConfigTaskContext;
 import org.dromara.fund.domain.vo.FundNavPositionBatchStatusVo;
 import org.dromara.fund.domain.vo.FundNavPositionVo;
 import org.dromara.fund.mapper.FundInfoMapper;
+import org.dromara.fund.mapper.FundNavPositionMapper;
 import org.dromara.fund.service.IFundNavPositionService;
 import org.dromara.fund.service.QuantConfigTaskContextResolver;
 import org.redisson.api.RLock;
@@ -33,10 +38,11 @@ public class FundNavPositionServiceImpl implements IFundNavPositionService {
     private static final Duration BATCH_STATUS_TTL = Duration.ofHours(24);
 
     private final FundNavPositionProviderClient providerClient;
-    private final FundEstimateRuntimeSettings runtimeSettings;
     private final QuantConfigTaskContextResolver quantConfigTaskContextResolver;
     private final FundInfoMapper fundInfoMapper;
+    private final FundNavPositionMapper fundNavPositionMapper;
     private final ScheduledExecutorService scheduledExecutorService;
+    private final ObjectMapper objectMapper;
     private final Object batchSubmissionMonitor = new Object();
 
     @Override
@@ -142,21 +148,24 @@ public class FundNavPositionServiceImpl implements IFundNavPositionService {
     }
 
     private FundNavPositionVo queryNavPosition(String fundCode, QuantConfigTaskContext configContext) {
-        FundNavPositionVo cached = queryCached(fundCode, configContext);
-        if (cached != null) {
-            return cached;
+        FundNavPositionVo persisted = queryPersisted(fundCode, configContext);
+        if (persisted != null) {
+            return persisted;
         }
+        return calculateAndPersist(fundCode, configContext);
+    }
+
+    /** 批量计算必须基于当前确认净值重算，并覆盖同一发布版本下的旧结果。 */
+    private FundNavPositionVo refreshNavPosition(String fundCode, QuantConfigTaskContext configContext) {
+        return calculateAndPersist(fundCode, configContext);
+    }
+
+    private FundNavPositionVo calculateAndPersist(String fundCode, QuantConfigTaskContext configContext) {
         NavPositionProviderResponse response = providerClient.fetch(fundCode, configContext);
         validate(response, fundCode, configContext);
         FundNavPositionVo result = fromProvider(response);
-        RedisUtils.setCacheObject(cacheKey(fundCode, configContext), result, runtimeSettings.getCacheTtl());
+        persist(result);
         return result;
-    }
-
-    /** 批量计算必须基于当前确认净值重算，不能复用上一轮的热点缓存。 */
-    private FundNavPositionVo refreshNavPosition(String fundCode, QuantConfigTaskContext configContext) {
-        RedisUtils.deleteObject(cacheKey(fundCode, configContext));
-        return queryNavPosition(fundCode, configContext);
     }
 
     private void updateBatchProgress(
@@ -193,21 +202,87 @@ public class FundNavPositionServiceImpl implements IFundNavPositionService {
         return value.length() <= 240 ? value : value.substring(0, 240);
     }
 
-    @Override
-    public FundNavPositionVo queryCached(String fundCode, QuantConfigTaskContext configContext) {
-        if (configContext == null || navPositionAlgorithmVersion(configContext) == null) {
+    private FundNavPositionVo queryPersisted(String fundCode, QuantConfigTaskContext configContext) {
+        if (configContext == null || configContext.getConfigReleaseVersion() == null
+            || configContext.getConfigReleaseChecksum() == null || configContext.getConfigReleaseChecksum().isBlank()) {
             return null;
         }
-        return RedisUtils.getCacheObject(cacheKey(fundCode, configContext));
+        return fromEntity(fundNavPositionMapper.selectForRelease(
+            fundCode,
+            configContext.getConfigReleaseVersion(),
+            configContext.getConfigReleaseChecksum()
+        ));
     }
 
-    private String cacheKey(String fundCode, QuantConfigTaskContext context) {
-        return FundCacheConstants.navPositionCacheKey(
-            fundCode,
-            navPositionAlgorithmVersion(context),
-            context.getConfigReleaseVersion(),
-            context.getConfigReleaseChecksum()
-        );
+    private void persist(FundNavPositionVo result) {
+        FundNavPosition entity = new FundNavPosition();
+        entity.setId(IdGeneratorUtil.nextLongId());
+        entity.setFundCode(result.getFundCode());
+        entity.setTradeDate(result.getTradeDate());
+        entity.setCalculatedAt(result.getCalculatedAt());
+        entity.setStatus(result.getStatus());
+        entity.setAlgorithmVersion(result.getAlgorithmVersion());
+        entity.setConfigReleaseVersion(result.getConfigReleaseVersion());
+        entity.setConfigReleaseChecksum(result.getConfigReleaseChecksum());
+        entity.setNavPositionConfigVersion(result.getNavPositionConfigVersion());
+        entity.setNavPositionConfigChecksum(result.getNavPositionConfigChecksum());
+        entity.setInputDataVersion(result.getInputDataVersion());
+        entity.setNavPercentile(result.getNavPercentile());
+        entity.setCurrentDrawdown(result.getCurrentDrawdown());
+        entity.setMa60Deviation(result.getMa60Deviation());
+        entity.setMa120Deviation(result.getMa120Deviation());
+        entity.setMa250Deviation(result.getMa250Deviation());
+        entity.setNavPositionScore(result.getNavPositionScore());
+        entity.setNavPositionRegion(result.getNavPositionRegion());
+        entity.setSampleCount(result.getSampleCount());
+        entity.setEffectiveStartDate(result.getEffectiveStartDate());
+        entity.setEffectiveEndDate(result.getEffectiveEndDate());
+        entity.setReasonsJson(writeJson(result.getReasons()));
+        entity.setIndicatorsJson(writeJson(result.getIndicators()));
+        fundNavPositionMapper.upsert(entity);
+    }
+
+    private FundNavPositionVo fromEntity(FundNavPosition entity) {
+        if (entity == null) {
+            return null;
+        }
+        FundNavPositionVo result = new FundNavPositionVo();
+        BeanUtils.copyProperties(entity, result);
+        result.setReasons(readReasons(entity.getReasonsJson()));
+        result.setIndicators(readIndicators(entity.getIndicatorsJson()));
+        return result;
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value == null ? List.of() : value);
+        } catch (JsonProcessingException error) {
+            throw new ServiceException("历史位置结果序列化失败");
+        }
+    }
+
+    private List<FundNavPositionVo.NavPositionReasonVo> readReasons(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<List<FundNavPositionVo.NavPositionReasonVo>>() {
+            });
+        } catch (JsonProcessingException error) {
+            throw new ServiceException("历史位置结果解释数据损坏");
+        }
+    }
+
+    private List<FundNavPositionVo.NavPositionIndicatorVo> readIndicators(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<List<FundNavPositionVo.NavPositionIndicatorVo>>() {
+            });
+        } catch (JsonProcessingException error) {
+            throw new ServiceException("历史位置结果指标数据损坏");
+        }
     }
 
     private String navPositionAlgorithmVersion(QuantConfigTaskContext context) {

@@ -645,10 +645,10 @@ onMounted(async () => {
                   <ElTableColumn label="更新人" min-width="110" prop="updatedBy" />
                   <ElTableColumn fixed="right" label="操作" min-width="128">
                     <template #default="{ row }">
-                      <ElButton link type="primary" @click.stop="selectVersion(row)">
+                      <ElButton link type="primary" @click.stop="selectVersion(row as FundApi.QuantConfigVersion)">
                         编辑
                       </ElButton>
-                      <ElButton link type="primary" @click.stop="openDiff(row)">
+                      <ElButton link type="primary" @click.stop="openDiff(row as FundApi.QuantConfigVersion)">
                         Diff
                       </ElButton>
                     </template>
@@ -773,7 +773,7 @@ onMounted(async () => {
                     <template #default="{ row }">
                       <ElPopconfirm
                         title="回滚会创建新的更高发布版本，确认继续？"
-                        @confirm="rollbackRelease(row)"
+                        @confirm="rollbackRelease(row as FundApi.QuantConfigRelease)"
                       >
                         <template #reference>
                           <ElButton

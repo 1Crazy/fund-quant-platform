@@ -79,6 +79,45 @@
         LIMIT #{batchSize}
     </select>
 
+    <select id="selectReadyEstimateFundCodesForShard" resultType="string">
+        SELECT fi.fund_code
+        FROM fund_info fi
+        WHERE fi.status = '0'
+          AND fi.del_flag = 0
+          AND fi.quality_status = 'NORMAL'
+          AND MOD((hashtext(fi.fund_code)::bigint &amp; 2147483647), #{shardTotal}) = #{shardIndex}
+          AND (
+              SELECT nav.quality_status
+              FROM fund_nav nav
+              WHERE nav.fund_code = fi.fund_code
+              ORDER BY nav.nav_date DESC
+              LIMIT 1
+          ) = 'NORMAL'
+          AND (
+              SELECT holding.quality_status
+              FROM fund_holding holding
+              WHERE holding.fund_code = fi.fund_code
+              ORDER BY holding.report_date DESC
+              LIMIT 1
+          ) = 'NORMAL'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM fund_holding holding
+              WHERE holding.fund_code = fi.fund_code
+                AND holding.report_date = (
+                    SELECT MAX(latest_holding.report_date)
+                    FROM fund_holding latest_holding
+                    WHERE latest_holding.fund_code = fi.fund_code
+                )
+                AND holding.quality_status IS DISTINCT FROM 'NORMAL'
+          )
+        <if test="lastFundCode != null and lastFundCode != ''">
+            AND fi.fund_code &gt; #{lastFundCode}
+        </if>
+        ORDER BY fi.fund_code
+        LIMIT #{batchSize}
+    </select>
+
     <select id="selectActiveFundCodesAfter" resultType="string">
         SELECT fi.fund_code
         FROM fund_info fi
@@ -133,6 +172,70 @@
               FROM fund_nav fn
               WHERE fn.fund_code = fi.fund_code
           )
+    </select>
+
+    <sql id="fundListFilters">
+        WHERE fi.del_flag = 0
+        <if test="bo.fundCode != null and bo.fundCode != ''">
+            AND fi.fund_code = #{bo.fundCode}
+        </if>
+        <if test="bo.fundName != null and bo.fundName != ''">
+            AND (
+                fi.fund_name ILIKE ('%' || CAST(#{bo.fundName} AS varchar) || '%')
+                OR fi.pinyin_abbr ILIKE ('%' || CAST(#{bo.fundName} AS varchar) || '%')
+            )
+        </if>
+        <if test="bo.fundType != null and bo.fundType != ''">
+            AND fi.fund_type LIKE (CAST(#{bo.fundType} AS varchar) || '%')
+        </if>
+        <if test="bo.source != null and bo.source != ''">
+            AND fi.source = #{bo.source}
+        </if>
+        <if test="bo.qualityStatus != null and bo.qualityStatus != ''">
+            AND fi.quality_status = #{bo.qualityStatus}
+        </if>
+        <if test="bo.syncStatus != null and bo.syncStatus != ''">
+            AND sync.state = #{bo.syncStatus}
+        </if>
+        <if test="bo.navPositionRegion != null and bo.navPositionRegion != ''">
+            AND nav_position.nav_position_region = #{bo.navPositionRegion}
+        </if>
+        <if test="bo.status != null and bo.status != ''">
+            AND fi.status = #{bo.status}
+        </if>
+        <if test="bo.status == null or bo.status == ''">
+            AND fi.status = '0'
+        </if>
+    </sql>
+
+    <sql id="fundListCountSyncJoin">
+        <if test="bo.syncStatus != null and bo.syncStatus != ''">
+            LEFT JOIN LATERAL (
+                SELECT fsr.state
+                FROM fund_sync_run fsr
+                WHERE fsr.dataset IN ('FUND_INFO', 'FUND_NAV', 'FUND_HOLDING')
+                  AND (fsr.scope_value = fi.fund_code OR fsr.scope_type = 'ALL')
+                ORDER BY fsr.started_at DESC
+                LIMIT 1
+            ) sync ON TRUE
+        </if>
+    </sql>
+
+    <sql id="fundListCountNavPositionJoin">
+        <if test="bo.navPositionRegion != null and bo.navPositionRegion != ''">
+            INNER JOIN fund_nav_position nav_position
+                ON nav_position.fund_code = fi.fund_code
+               AND nav_position.config_release_version = #{configReleaseVersion}
+               AND nav_position.config_release_checksum = #{configReleaseChecksum}
+        </if>
+    </sql>
+
+    <select id="countFundPage" resultType="long">
+        SELECT COUNT(*)
+        FROM fund_info fi
+        <include refid="fundListCountSyncJoin"/>
+        <include refid="fundListCountNavPositionJoin"/>
+        <include refid="fundListFilters"/>
     </select>
 
     <insert id="upsert">
@@ -222,6 +325,11 @@
                estimate.quote_coverage_rate AS estimate_quote_coverage_rate,
                estimate.missing_quote_count AS estimate_missing_quote_count,
                estimate.status_reason AS estimate_status_reason,
+               nav_position.status AS nav_position_status,
+               nav_position.nav_position_score,
+               nav_position.nav_position_region,
+               nav_position.trade_date AS nav_position_trade_date,
+               nav_position.calculated_at AT TIME ZONE 'Asia/Shanghai' AS nav_position_calculated_at,
                CASE
                    WHEN estimate.estimate_time IS NULL THEN TRUE
                    WHEN estimate.source_status != 'NORMAL' THEN TRUE
@@ -268,47 +376,11 @@
             ORDER BY fe.estimate_time DESC
             LIMIT 1
         ) estimate ON TRUE
-        WHERE fi.del_flag = 0
-        <if test="bo.fundCode != null and bo.fundCode != ''">
-            AND fi.fund_code = #{bo.fundCode}
-        </if>
-        <if test="bo.fundName != null and bo.fundName != ''">
-            AND (
-                fi.fund_name ILIKE CONCAT('%', #{bo.fundName}, '%')
-                OR fi.pinyin_abbr ILIKE CONCAT('%', #{bo.fundName}, '%')
-            )
-        </if>
-        <if test="bo.fundType != null and bo.fundType != ''">
-            AND fi.fund_type = #{bo.fundType}
-        </if>
-        <if test="bo.source != null and bo.source != ''">
-            AND fi.source = #{bo.source}
-        </if>
-        <if test="bo.qualityStatus != null and bo.qualityStatus != ''">
-            AND fi.quality_status = #{bo.qualityStatus}
-        </if>
-        <if test="bo.syncStatus != null and bo.syncStatus != ''">
-            AND sync.state = #{bo.syncStatus}
-        </if>
-        <if test="bo.navPositionFundCodes != null">
-            <choose>
-                <when test="bo.navPositionFundCodes.size() > 0">
-                    AND fi.fund_code IN
-                    <foreach collection="bo.navPositionFundCodes" item="fundCode" open="(" separator="," close=")">
-                        #{fundCode}
-                    </foreach>
-                </when>
-                <otherwise>
-                    AND 1 = 0
-                </otherwise>
-            </choose>
-        </if>
-        <if test="bo.status != null and bo.status != ''">
-            AND fi.status = #{bo.status}
-        </if>
-        <if test="bo.status == null or bo.status == ''">
-            AND fi.status = '0'
-        </if>
+        LEFT JOIN fund_nav_position nav_position
+            ON nav_position.fund_code = fi.fund_code
+           AND nav_position.config_release_version = #{configReleaseVersion}
+           AND nav_position.config_release_checksum = #{configReleaseChecksum}
+        <include refid="fundListFilters"/>
         ORDER BY fi.fund_code
     </select>
 

@@ -27,6 +27,16 @@ public interface FundInfoMapper extends BaseMapperPlus<FundInfo, FundInfo> {
     );
 
     /**
+     * 供 SnailJob 历史重算按稳定哈希分片扫描合格基金；游标仅在当前分片内续跑。
+     */
+    List<String> selectReadyEstimateFundCodesForShard(
+        @Param("lastFundCode") String lastFundCode,
+        @Param("shardIndex") int shardIndex,
+        @Param("shardTotal") int shardTotal,
+        @Param("batchSize") int batchSize
+    );
+
+    /**
      * 按基金代码游标扫描当前有效基金，供长时全局同步逐批续跑。
      */
     List<String> selectActiveFundCodesAfter(
@@ -48,6 +58,15 @@ public interface FundInfoMapper extends BaseMapperPlus<FundInfo, FundInfo> {
 
     /** 统计可参与历史位置计算的有效基金数量。 */
     int countActiveFundCodesWithNav();
+
+    /**
+     * 基金列表轻量计数，不执行列表展示所需的 NAV、持仓、同步和估值关联。
+     */
+    long countFundPage(
+        @Param("bo") FundQueryBo bo,
+        @Param("configReleaseVersion") Long configReleaseVersion,
+        @Param("configReleaseChecksum") String configReleaseChecksum
+    );
 
     Page<FundListVo> selectFundPage(
         @Param("page") Page<FundListVo> page,

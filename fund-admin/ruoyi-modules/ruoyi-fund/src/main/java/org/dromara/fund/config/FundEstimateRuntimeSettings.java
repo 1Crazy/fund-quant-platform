@@ -29,12 +29,14 @@ public class FundEstimateRuntimeSettings {
     public static final String PROVIDER_CONNECT_TIMEOUT_MS = "fund.estimate.provider.connect-timeout-ms";
     public static final String PROVIDER_READ_TIMEOUT_MS = "fund.estimate.provider.read-timeout-ms";
     public static final String CACHE_TTL_SECONDS = "fund.estimate.cache.ttl-seconds";
+    public static final String CLOSED_CACHE_TTL_SECONDS = "fund.estimate.cache.closed-ttl-seconds";
     public static final String PROVIDER_RESULT_CACHE_SECONDS = "fund.estimate.provider-result-cache-seconds";
     public static final String MARKET_QUOTE_CACHE_SECONDS = "fund.estimate.market-quote-cache-seconds";
     public static final String STALE_AFTER_SECONDS = "fund.estimate.stale-after-seconds";
     public static final String LOCK_WAIT_MILLIS = "fund.estimate.lock.wait-millis";
     public static final String LOCK_LEASE_MILLIS = "fund.estimate.lock.lease-millis";
     public static final String SNAPSHOT_THROTTLE_SECONDS = "fund.estimate.snapshot.throttle-seconds";
+    public static final String SNAPSHOT_CLOSE_TIME = "fund.estimate.snapshot.close-time";
     public static final String SCHEDULE_ENABLED = "fund.estimate.schedule.enabled";
     public static final String SCHEDULE_CRON = "fund.estimate.schedule.cron";
     public static final String SCHEDULE_ZONE_ID = "fund.estimate.schedule.zone-id";
@@ -63,6 +65,13 @@ public class FundEstimateRuntimeSettings {
         return Duration.ofSeconds(getPositiveLong(CACHE_TTL_SECONDS));
     }
 
+    /** 闭市后保留最后成功快照，避免每次详情查询都回源。 */
+    public Duration getCacheTtl(ZonedDateTime currentTime) {
+        return isActiveTradingSession(currentTime)
+            ? getCacheTtl()
+            : Duration.ofSeconds(getPositiveLong(CLOSED_CACHE_TTL_SECONDS));
+    }
+
     public int getProviderResultCacheSeconds() {
         return getPositiveInt(PROVIDER_RESULT_CACHE_SECONDS, 300);
     }
@@ -85,6 +94,19 @@ public class FundEstimateRuntimeSettings {
 
     public long getSnapshotThrottleSeconds() {
         return getPositiveLong(SNAPSHOT_THROTTLE_SECONDS);
+    }
+
+    /** 收盘快照时间；设置为 {@code OFF} 时关闭该补充快照。 */
+    public boolean isCloseSnapshotSlot(ZonedDateTime currentTime) {
+        String value = configService.getConfigValue(SNAPSHOT_CLOSE_TIME);
+        if (value == null || value.isBlank() || "OFF".equalsIgnoreCase(value.trim())) {
+            return false;
+        }
+        try {
+            return isTradingDay(currentTime) && currentTime.toLocalTime().equals(LocalTime.parse(value.trim()));
+        } catch (java.time.format.DateTimeParseException error) {
+            throw invalid(SNAPSHOT_CLOSE_TIME, "必须为 HH:mm 或 OFF");
+        }
     }
 
     public boolean isScheduleEnabled() {
@@ -140,9 +162,7 @@ public class FundEstimateRuntimeSettings {
     }
 
     public boolean isActiveTradingSession(ZonedDateTime currentTime) {
-        LocalDate date = currentTime.toLocalDate();
-        if (currentTime.getDayOfWeek() == DayOfWeek.SATURDAY || currentTime.getDayOfWeek() == DayOfWeek.SUNDAY
-            || getScheduleHolidays().contains(date)) {
+        if (!isTradingDay(currentTime)) {
             return false;
         }
         LocalTime now = currentTime.toLocalTime();
@@ -151,6 +171,13 @@ public class FundEstimateRuntimeSettings {
             .filter(value -> !value.isBlank())
             .map(this::parseTradingSession)
             .anyMatch(session -> !now.isBefore(session.start()) && now.isBefore(session.end()));
+    }
+
+    private boolean isTradingDay(ZonedDateTime currentTime) {
+        LocalDate date = currentTime.toLocalDate();
+        return currentTime.getDayOfWeek() != DayOfWeek.SATURDAY
+            && currentTime.getDayOfWeek() != DayOfWeek.SUNDAY
+            && !getScheduleHolidays().contains(date);
     }
 
     private TradingSession parseTradingSession(String value) {

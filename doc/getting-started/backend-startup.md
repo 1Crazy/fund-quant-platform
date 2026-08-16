@@ -312,9 +312,9 @@ export FUND_DATA_PROVIDER_BASE_URL='http://localhost:8000'
 export FUND_ESTIMATE_PROVIDER_URL='http://localhost:8000/internal/v1/data/estimate/{code}'
 ```
 
-基金列表采用本地库分页查询。首次通过 `/fund/list` 精确查询六位基金代码时，Java 会自动调用 fund-quant 同步基础信息和最新净值，再从 PostgreSQL 返回分页结果；前端无需额外调用同步接口。
+基金列表采用本地库分页查询。代码、名称、类型、来源、质量状态、同步状态和历史位置等全部筛选项都只查询已同步到 PostgreSQL 的数据，不在列表读请求中触发 fund-quant 同步。
 
-基金名称查询会先从 fund-quant 同步名称或拼音缩写匹配的轻量基金目录，再由 PostgreSQL 执行分页；进入详情时才按需同步基金档案、净值和最新公开股票持仓。详情页按近1月、近3月、近6月、近1年、近3年、近5年、成立以来切换，Java 会按自然时间过滤净值序列。
+进入详情时才按需同步基金档案、净值和最新公开股票持仓。详情页按近1月、近3月、近6月、近1年、近3年、近5年、成立以来切换，Java 会按自然时间过滤净值序列。
 
 然后启动后端：
 
@@ -439,12 +439,11 @@ mvn -pl ruoyi-admin -am spring-boot:run -Pdev \
 
 不带基金代码时，列表只展示已经同步到本地业务库的数据；空库返回空列表是正常行为。
 
-精确传入六位基金代码时，Java 会自动调用 fund-quant，同步基础信息和最新净值。若仍为空，依次确认：
+精确传入六位基金代码时也只查询本地 PostgreSQL。若仍为空，依次确认：
 
-- fund-quant 已启动且 `http://localhost:8000/health` 正常。
-- `FUND_DATA_PROVIDER_BASE_URL` 未覆盖为错误地址。
-- Redis 正常连接。
-- PostgreSQL 中已创建 `fund_info`、`fund_nav` 表。
+- PostgreSQL 中已创建 `fund_info` 表并已同步该基金。
+- 对应记录的 `status = '0'` 且 `del_flag = 0`。
+- 请求中的基金代码与 `fund_info.fund_code` 完全一致。
 
 ```bash
 curl -i \

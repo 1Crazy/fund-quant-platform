@@ -377,7 +377,7 @@ onBeforeUnmount(() => {
             </ElTableColumn>
             <ElTableColumn label="进度" min-width="180">
               <template #default="{ row }">
-                <ElProgress :percentage="progressPercent(row)" />
+                <ElProgress :percentage="progressPercent(row as FundApi.FundSyncRun)" />
               </template>
             </ElTableColumn>
             <ElTableColumn label="游标" min-width="160" prop="cursorValue" show-overflow-tooltip />
@@ -520,11 +520,11 @@ onBeforeUnmount(() => {
           <ElTableColumn fixed="right" label="操作" min-width="100">
             <template #default="{ row }">
               <ElButton
-                v-if="canRetry(row)"
+                v-if="canRetry(row as FundApi.FundSyncRun)"
                 :loading="syncTriggerLoading"
                 link
                 type="primary"
-                @click="retry(row)"
+                @click="retry(row as FundApi.FundSyncRun)"
               >
                 重试
               </ElButton>
@@ -614,11 +614,11 @@ onBeforeUnmount(() => {
               <ElTableColumn fixed="right" label="操作" min-width="90">
                 <template #default="{ row }">
                   <ElButton
-                    v-if="canRetry(row)"
+                    v-if="canRetry(row as FundApi.FundSyncRun)"
                     :loading="syncTriggerLoading"
                     link
                     type="primary"
-                    @click="retryFailedRun(row)"
+                    @click="retryFailedRun(row as FundApi.FundSyncRun)"
                   >
                     重试
                   </ElButton>
@@ -672,7 +672,7 @@ onBeforeUnmount(() => {
 
             <ElTable v-loading="qualityIssuesLoading" :data="qualityIssues" row-key="recordKey" stripe>
               <ElTableColumn label="基金代码" min-width="110">
-                <template #default="{ row }">{{ issueFundCode(row) }}</template>
+                <template #default="{ row }">{{ issueFundCode(row as FundApi.FundDataQualityIssue) }}</template>
               </ElTableColumn>
               <ElTableColumn label="记录键" min-width="210" prop="recordKey" show-overflow-tooltip />
               <ElTableColumn label="数据集" min-width="110">

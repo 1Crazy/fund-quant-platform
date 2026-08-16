@@ -16,7 +16,7 @@
 3. 创建或更新只读角色 `fund_quant_reader`，授予下列共享表的 `SELECT`：
    `quant_config_version`、`quant_config_release`、`quant_config_release_item`、`fund_info`、`fund_nav`、`fund_holding`。
    该角色必须保持 `default_transaction_read_only=on`、5 秒 `statement_timeout` 和 10 个连接上限。Stage 2 与 Stage 3 迁移分别授予对应表权限；角色在迁移后创建时，应重跑两个授权块。
-4. 执行 `update_harden_realtime_fund_estimation_v1.sql`。它扩展 `fund_estimate`、回填遗留快照为 `STALE`、写入运行参数，并默认关闭调度。
+4. 依次执行 `update_harden_realtime_fund_estimation_v1.sql`、`update_harden_realtime_fund_estimation_v2.sql`。它们扩展 `fund_estimate`、回填遗留快照为 `STALE`、写入运行参数，并默认关闭调度。
 5. 为 Python 配置 `FUND_QUANT_CONFIG_READONLY_DSN`。它应使用上述只读角色；连接池总上限由单个共享池控制，不能另建一个独立的配置读取池。
 6. 先部署 Python，再部署 Java，最后部署 Web。Java 的估值供应方地址必须指向 Python 的 `/internal/v1/data/estimate/{code}`；本机联调用 `http://localhost:8000`。
 7. 通过 `GET /fund/estimate/{code}` 对具备确认 NAV、正常质量持仓和可用行情的少量基金进行灰度检查。确认结果的发布版本、校验和、持仓覆盖率、行情覆盖率、报告期和输入数据版本均已回显后，才配置热点基金并开启调度。
@@ -41,11 +41,13 @@
 | `fund.estimate.provider.connect-timeout-ms` | 2000 | Java 到 Python 的连接超时 |
 | `fund.estimate.provider.read-timeout-ms` | 30000 | Java 到 Python 的读取超时 |
 | `fund.estimate.cache.ttl-seconds` | 45 | Java 正常估值 Redis TTL |
+| `fund.estimate.cache.closed-ttl-seconds` | 1800 | 闭市后最后成功估值 Redis TTL |
 | `fund.estimate.provider-result-cache-seconds` | 15 | Python 单基金估值缓存窗口 |
 | `fund.estimate.market-quote-cache-seconds` | 15 | Python 成分行情缓存窗口 |
 | `fund.estimate.stale-after-seconds` | 180 | 快照仅能作为 `STALE` 返回的时长 |
 | `fund.estimate.lock.wait-millis` / `lock.lease-millis` | 800 / 5000 | 单基金请求合并锁 |
 | `fund.estimate.snapshot.throttle-seconds` | 300 | 同基金同发布版本常规快照最小间隔 |
+| `fund.estimate.snapshot.close-time` | `15:00` | 交易日强制写入一次收盘快照；`OFF` 关闭 |
 | `fund.estimate.schedule.enabled` | false | Spring Scheduler 总开关 |
 | `fund.estimate.schedule.cron` | `*/30 * * * * MON-FRI` | 30 秒调度表达式 |
 | `fund.estimate.schedule.zone-id` | `Asia/Shanghai` | 调度时区，不定义结果时区 |
@@ -91,7 +93,7 @@ Actuator 指标采用低基数标签，不得在标签中包含基金代码、�
 - `fund.estimate.schedule.duration`：批调度耗时。
 - `fund.estimate.snapshots` 与 `fund.estimate.retention.deleted`：快照节流/写入和清理数量。
 
-在 SnailJob 中创建 `fundEstimateRetentionJob`，每次只执行一个有界批次。它删除过期的非最新快照，始终保留每只基金、每个配置发布版本的最新快照。历史回填和批量重算也必须通过 SnailJob 分片执行，并固定发布版本与校验和；不得把长批任务塞进 30 秒 Spring Scheduler。单基金显式历史重算使用 `fundEstimateRecalculationJob`，参数为 `fundCode,releaseVersion,releaseChecksum`；目标发布版本和校验和必须同时存在并精确匹配。
+在 SnailJob 中创建 `fundEstimateRetentionJob`，每次只执行一个有界批次。它删除过期的非最新快照，始终保留每只基金、每个配置发布版本的最新快照。历史回填和批量重算使用 `fundEstimateBatchRecalculationJob` 分片执行，参数为 `releaseVersion,releaseChecksum,shardIndex,shardTotal`；每个分片按基金代码游标记录进度、状态计数和固定配置血缘，发布/参数校验异常由 SnailJob 重试策略处理。不得把长批任务塞进 30 秒 Spring Scheduler。单基金显式历史重算使用 `fundEstimateRecalculationJob`，参数为 `fundCode,releaseVersion,releaseChecksum`；目标发布版本和校验和必须同时存在并精确匹配。
 
 ## 回滚
 

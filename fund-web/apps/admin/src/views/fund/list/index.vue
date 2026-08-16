@@ -36,6 +36,7 @@ import {
 } from '../utils/status';
 import FundDetailDrawer from '../detail/index.vue';
 import GlobalNavSyncDrawer from '../sync/GlobalNavSyncDrawer.vue';
+import NavPositionCalculationDrawer from './NavPositionCalculationDrawer.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -52,6 +53,7 @@ const {
   total,
 } = storeToRefs(fundStore);
 const drawerVisible = ref(false);
+const navPositionDrawerVisible = ref(false);
 const syncDrawerVisible = ref(false);
 const selectedFundCode = ref('');
 const canMonitorEstimate = computed(() =>
@@ -152,6 +154,15 @@ function openSyncStatus() {
   syncDrawerVisible.value = true;
 }
 
+async function openNavPositionProgress() {
+  navPositionDrawerVisible.value = true;
+  try {
+    await fundStore.fetchNavPositionBatchStatus();
+  } catch {
+    ElMessage.error('读取历史位置计算进度失败');
+  }
+}
+
 async function search() {
   fundStore.query.fundCode = fundStore.query.fundCode?.trim() ?? '';
   await fundStore.fetchList(true);
@@ -234,6 +245,7 @@ async function submitNavPositionBatchCalculation() {
   }
 
   const result = await fundStore.refreshAllNavPositions();
+  navPositionDrawerVisible.value = true;
   if (result.state === 'RUNNING') {
     startNavPositionBatchPolling();
     ElMessage.success('历史位置计算已提交，完成后列表会自动刷新');
@@ -312,6 +324,12 @@ onBeforeUnmount(stopNavPositionBatchPolling);
               <RotateCw class="mr-1 size-4" />全量计算历史位置
             </ElButton>
             <ElButton
+              v-if="canCalculateNavPosition && navPositionBatchStatus?.state && navPositionBatchStatus.state !== 'IDLE'"
+              @click="openNavPositionProgress"
+            >
+              <RotateCw class="mr-1 size-4" />计算进度
+            </ElButton>
+            <ElButton
               v-if="canManualSync"
               :loading="syncTriggerLoading"
               type="warning"
@@ -332,7 +350,7 @@ onBeforeUnmount(stopNavPositionBatchPolling);
       </section>
 
       <ElCard class="filter-panel" shadow="never">
-        <div class="grid gap-3 xl:grid-cols-[150px_1fr_150px_150px_150px_150px_150px_auto]">
+        <div class="fund-filter-grid">
           <ElInput
             v-model="query.fundCode"
             clearable
@@ -342,6 +360,7 @@ onBeforeUnmount(stopNavPositionBatchPolling);
           />
           <ElInput
             v-model="query.fundName"
+            class="fund-name-filter"
             clearable
             placeholder="基金名称"
             @keyup.enter="search"
@@ -401,7 +420,7 @@ onBeforeUnmount(stopNavPositionBatchPolling);
         >
           <ElTableColumn label="基金代码" min-width="112" prop="fundCode" fixed>
             <template #default="{ row }">
-              <button class="fund-code" type="button" @click.stop="openDetail(row)">
+              <button class="fund-code" type="button" @click.stop="openDetail(row as FundApi.FundListItem)">
                 {{ row.fundCode }}
               </button>
             </template>
@@ -413,7 +432,7 @@ onBeforeUnmount(stopNavPositionBatchPolling);
             </template>
           </ElTableColumn>
           <ElTableColumn label="来源" min-width="170" show-overflow-tooltip>
-            <template #default="{ row }">{{ formatSource(row) }}</template>
+            <template #default="{ row }">{{ formatSource(row as FundApi.FundListItem) }}</template>
           </ElTableColumn>
           <ElTableColumn label="质量状态" min-width="120">
             <template #default="{ row }">
@@ -478,7 +497,7 @@ onBeforeUnmount(stopNavPositionBatchPolling);
                 v-else
                 class="position-action"
                 type="button"
-                @click.stop="openDetail(row)"
+                @click.stop="openDetail(row as FundApi.FundListItem)"
               >
                 计算
               </button>
@@ -535,6 +554,7 @@ onBeforeUnmount(stopNavPositionBatchPolling);
         <FundDetailDrawer :active="drawerVisible" :code="selectedFundCode" />
       </ElDrawer>
       <GlobalNavSyncDrawer v-model="syncDrawerVisible" />
+      <NavPositionCalculationDrawer v-model="navPositionDrawerVisible" />
     </div>
   </Page>
 </template>
@@ -598,6 +618,18 @@ onBeforeUnmount(stopNavPositionBatchPolling);
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
+}
+
+.fund-filter-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+@media (min-width: 768px) {
+  .fund-name-filter {
+    grid-column: span 2;
+  }
 }
 
 .live-dot {

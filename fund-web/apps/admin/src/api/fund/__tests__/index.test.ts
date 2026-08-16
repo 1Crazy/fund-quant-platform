@@ -81,6 +81,27 @@ describe('fund api data-center extensions', () => {
     );
     expect(result.items[0]?.latestNav).toBe(1.2345);
     expect(result.items[0]?.estimateGrowthRate).toBe(1.23);
+    const [, requestOptions] = requestMocks.get.mock.calls[0]!;
+    expect(requestOptions).not.toHaveProperty('timeout');
+  });
+
+  it('queries PostgreSQL by fund name without enabling the remote-sync timeout', async () => {
+    requestMocks.get.mockResolvedValueOnce({ rows: [], total: 0 });
+
+    await getFundListApi({
+      fundCode: '',
+      fundName: '华夏',
+      fundType: '',
+      pageNum: 1,
+      pageSize: 20,
+      qualityStatus: '',
+      source: '',
+      syncStatus: '',
+    });
+
+    const [, requestOptions] = requestMocks.get.mock.calls[0]!;
+    expect(requestOptions).not.toHaveProperty('timeout');
+    expect(requestOptions.params).toMatchObject({ fundName: '华夏' });
   });
 
   it('handles synchronization history counters as numbers', async () => {

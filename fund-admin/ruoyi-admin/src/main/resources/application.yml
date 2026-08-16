@@ -133,10 +133,11 @@ tenant:
     - sys_client
     - sys_oss_config
     - flow_spel
-    # 基金行情、净值和估值是跨租户共享的公共市场数据。
+    # 基金行情、净值、估值和历史位置是跨租户共享的公共市场数据。
     - fund_info
     - fund_nav
     - fund_estimate
+    - fund_nav_position
     - fund_trend_snapshot
     - fund_signal_snapshot
     - market_temperature

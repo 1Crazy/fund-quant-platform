@@ -12,9 +12,6 @@ public final class FundCacheConstants {
     /** 单基金估值热点缓存前缀。 */
     public static final String ESTIMATE_KEY_PREFIX = "fund:estimate:";
 
-    /** 单基金历史 NAV 位置缓存前缀。 */
-    public static final String NAV_POSITION_KEY_PREFIX = "fund:nav-position:";
-
     /** 单基金回源防击穿锁前缀。 */
     public static final String ESTIMATE_LOCK_PREFIX = "fund:lock:estimate:";
 
@@ -29,19 +26,6 @@ public final class FundCacheConstants {
 
     public static String estimateCachePattern(String fundCode) {
         return ESTIMATE_KEY_PREFIX + fundCode + ":*";
-    }
-
-    public static String navPositionCacheKey(
-        String fundCode,
-        String algorithmVersion,
-        Long releaseVersion,
-        String releaseChecksum
-    ) {
-        return NAV_POSITION_KEY_PREFIX + fundCode + ":" + algorithmVersion + ":" + releaseVersion + ":" + releaseChecksum;
-    }
-
-    public static String navPositionCachePattern(String fundCode) {
-        return NAV_POSITION_KEY_PREFIX + fundCode + ":*";
     }
 
     public static String estimateLockKey(String fundCode) {

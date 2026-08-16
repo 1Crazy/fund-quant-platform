@@ -69,9 +69,8 @@ Redis
 #### 基金列表
 
 1. Vben 请求 `GET /fund/list?pageNum=1&pageSize=20&fundName=&fundType=`。
-2. 当 `fundCode` 是完整六位代码且本地不存在时，Spring 调用 fund-quant 同步基金基础信息和最新净值；详情页再按近1月、近3月、近6月、近1年、近3年、近5年或成立以来补齐净值。
-   当 `fundName` 非空时，Spring 仅同步名称或拼音缩写匹配的轻量基金目录，详情档案和净值仍按代码懒加载。
-3. Spring 从 `fund_info` 分页查询，并批量读取每只基金最新净值与 Redis 最新估值。
+2. 基金代码、名称、类型、来源、质量状态、同步状态和历史位置筛选均直接查询已同步到 PostgreSQL 的本地数据，不在列表读请求中触发上游同步。
+3. Spring 从 `fund_info` 分页查询，并批量读取每只基金最新净值与 Redis 最新估值；进入详情后再按近1月、近3月、近6月、近1年、近3年、近5年或成立以来按需补齐净值。
 4. 返回 RuoYi `TableDataInfo`：`{ code, msg, rows, total }`。
 5. 前端 VXE Grid 将 `rows -> items` 适配到现有表格协议，禁止逐行再次请求形成 N+1。
 

@@ -242,7 +242,7 @@ watch(
       v-else-if="!code || !isCurrentDetail"
       description="请选择基金后查看详情"
     />
-    <template v-else>
+    <template v-else-if="detail">
         <section class="fund-identity">
           <div class="min-w-0">
             <div class="fund-code">{{ detail.fundCode }}</div>
